@@ -5,12 +5,13 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js --format=esm",
-    "test": "node test/foundation.test.ts"
+    "build": "esbuild src/index.ts --bundle --platform=browser --target=es2020 --outfile=dist/index.js --format=esm",
+    "test": "playwright test"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "esbuild": "^0.19.0"
+    "esbuild": "^0.19.0",
+    "playwright": "^1.40.0"
   },
   "keywords": [
     "video",
