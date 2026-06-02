@@ -1,0 +1,22 @@
+{
+  "name": "videl-castro",
+  "version": "0.0.1",
+  "description": "A modern video player library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js --format=esm",
+    "test": "node test/foundation.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.19.0"
+  },
+  "keywords": [
+    "video",
+    "player",
+    "media"
+  ],
+  "author": "Videl Castro Team",
+  "license": "MIT"
+}
