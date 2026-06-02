@@ -1,0 +1,25 @@
+{
+  "name": "videl-castro",
+  "version": "0.0.1",
+  "description": "A modern video player library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=browser --target=es2020 --outfile=dist/index.js --format=esm",
+    "build:foundation": "esbuild src/foundation.ts --bundle --platform=browser --target=es2020 --outfile=dist/foundation.js --format=esm",
+    "build:foundation:iife": "esbuild src/foundation.ts --bundle --platform=browser --target=es2020 --global-name=VidelFoundation --outfile=dist/foundation.iife.js --format=iife",
+    "test": "npx playwright test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@playwright/test": "^1.40.0",
+    "esbuild": "^0.19.0"
+  },
+  "keywords": [
+    "video",
+    "player",
+    "media"
+  ],
+  "author": "Videl Castro Team",
+  "license": "MIT"
+}
