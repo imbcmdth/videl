@@ -1,7 +1,8 @@
 # DEL-004: `<videl-adaptation-set>`
 
 **Depends on:** DEL-000 (ManagedSourceBuffer, PlayerState), DEL-001 (mixins), DEL-003 (`<videl-representation>`)  
-**Deliverable type:** Custom element + Playwright tests
+**Deliverable type:** Custom element + Playwright tests  
+**Status:** Implemented
 
 ---
 
