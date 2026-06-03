@@ -42,7 +42,7 @@
     /* ── Main two-column layout ──────────────────────────────────── */
     main {
       display: grid;
-      grid-template-columns: 1fr 340px;
+      grid-template-columns: 1fr 500px;
       overflow: hidden;
     }
 
@@ -130,8 +130,20 @@
     .log-event.videl-repr-switched    { color: #f9c84f; }
     .log-event.videl-mse-incompatible { color: #f9844f; }
     .log-event.media-event            { color: var(--accent); }
+    .log-event.trace-event            { color: #666; font-weight: normal; font-style: italic; }
     .log-source { color: var(--muted); font-size: 10px; }
     .log-detail { color: #aaa; font-size: 10px; word-break: break-all; }
+
+    .log-trace-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .log-trace-toggle input { accent-color: var(--accent); cursor: pointer; }
 
     /* ── URL bar (footer) ────────────────────────────────────────── */
     footer {
@@ -215,6 +227,10 @@
     <div class="log-header">
       <h2>Event Log</h2>
       <div class="log-controls">
+        <label class="log-trace-toggle" title="videl:trace events are hidden by default">
+          <input type="checkbox" id="trace-toggle" />
+          trace
+        </label>
         <button id="pause-btn">Pause</button>
         <button id="clear-btn" class="danger">Clear</button>
       </div>

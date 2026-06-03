@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import { trace } from '../trace';
 
 // ---------------------------------------------------------------------------
 // SourceBuffer-aware buffering utilities.
@@ -137,11 +138,23 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     if (value === 'next' || value === 'active') {
       this.#startInit();
     } else if (value === null) {
-      // Abort the in-flight init fetch if any; keep #initAppended intact so
-      // re-activation with the same SourceBuffer skips the init re-fetch.
+      // Abort any in-flight init fetch.
       this.#initController?.abort();
       this.#initController = null;
       this.#initPromise    = null;
+      // Reset initAppended so the init segment is always re-sent to the
+      // SourceBuffer on the next activation.
+      //
+      // Why: the SourceBuffer is shared across all representations of this
+      // AdaptationSet.  When a different representation is active in between,
+      // it appends its own init segment, reconfiguring the SourceBuffer's
+      // decoder parameters.  If we skipped re-sending our init here (the old
+      // behaviour), our media segments would be decoded against the wrong
+      // parameters → MSE errors / corrupted frames.
+      //
+      // Cost: one extra small network request (~1–4 KB moov box) per
+      // re-activation — negligible compared to media segment sizes.
+      this.#initAppended = false;
     }
   }
 
@@ -175,7 +188,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     // Suppress all fetching while the contiguous buffered run from currentTime
     // is already long enough.  If currentTime is in a gap, bufferedAhead returns
     // 0, so fetching is always allowed — we fill gaps before extending the buffer.
-    if (bufferedAhead(currentTime, sbBuffered) >= bufferAhead) return;
+    const ahead = bufferedAhead(currentTime, sbBuffered);
+    if (ahead >= bufferAhead) {
+      trace(this, 'pump', 'buffer-full', {
+        bufferedAhead: +ahead.toFixed(2),
+        bufferAhead,
+      });
+      return;
+    }
 
     const segs = this.#childSegments;
     if (segs.length === 0) return;
@@ -205,6 +225,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
     const target = segs[targetIdx];
     if (target.getAttribute('slot') !== 'active') {
+      trace(this, 'pump', 'segment-activate', {
+        startTime: (target as any).startTime,
+        duration:  (target as any).duration,
+        url:       (target as any).url,
+      });
       target.sourceBuffer = this.#sourceBuffer;
       this.activateChild(target); // PickOneMixin deactivates any previous active segment
     }
@@ -241,10 +266,12 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     if (!this.#sourceBuffer) return;
     if (!this.initializationUrl) return;
 
+    trace(this, 'fetch', 'init-fetch-start', { url: this.initializationUrl });
     this.#initController = new AbortController();
     this.#initPromise = this.#doFetchInit(this.#initController.signal)
       .then(() => {
         this.#initAppended = true;
+        trace(this, 'buffer', 'init-append-complete', { url: this.initializationUrl });
       })
       .catch((err: unknown) => {
         if (this.getAttribute('slot') === null) return;

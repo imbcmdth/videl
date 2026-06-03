@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import { trace } from '../trace';
 
 /**
  * `<videl-adaptation-set>` — owns a set of `<videl-representation>` children
@@ -194,6 +195,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     // Detect whether a codec change is needed.
     if (prev && this.#activeMimeAndCodecs && this.#activeMimeAndCodecs !== newMimeAndCodecs) {
+      trace(this, 'mse', 'change-type', {
+        contentType: this.contentType,
+        from: this.#activeMimeAndCodecs,
+        to:   newMimeAndCodecs,
+      });
       try {
         this.#sourceBuffer!.changeType(newMimeAndCodecs);
       } catch {
@@ -213,10 +219,20 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       : null;
     const toId = tRep.repId ?? tRep.getAttribute?.('id') ?? null;
 
+    trace(this, 'abr', fromId ? 'switch' : 'initial-select', {
+      contentType: this.contentType,
+      from:        fromId,
+      to:          toId,
+      fromBandwidth: prev ? Number((prev as any).bandwidth ?? 0) : undefined,
+      toBandwidth:   Number(tRep.bandwidth ?? 0),
+    });
+
     // Ensure sourceBuffer is set on the target before it is activated.
     tRep.sourceBuffer = this.#sourceBuffer;
 
-    // PickOneMixin.activateChild removes the previous child's slot first.
+    // PickOneMixin.activateChild removes the previous child's slot first,
+    // which triggers the null handler on the old representation and resets
+    // its #initAppended flag — see VidelRepresentation.attributeChangedCallback.
     this.activateChild(target);
     this.#activeMimeAndCodecs = newMimeAndCodecs;
 

@@ -1,6 +1,7 @@
 import { parseMpd } from '../parser/mpd-parser';
 import { ManagedSourceBuffer } from '../managed-source-buffer';
 import type { PlayerState } from '../player-state';
+import { trace } from '../trace';
 
 /**
  * `<videl-player>` — the root orchestrator.
@@ -63,7 +64,7 @@ export class VidelPlayer extends HTMLElement {
   // Start optimistically so the ABR algorithm tries a high rendition on the
   // first tick and adapts downward if the network can't sustain it.  Real
   // throughput measurements replace this quickly after the first segment.
-  #bandwidth = 5_000_000; // initial: 5 Mbps
+  #bandwidth = 1_000_000; // initial: 5 Mbps
 
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
@@ -183,6 +184,9 @@ export class VidelPlayer extends HTMLElement {
     this.#loadAbort = new AbortController();
     const signal    = this.#loadAbort.signal;
 
+    // Snapshot play state before teardown for auto-play continuation.
+    const wasPlaying = !this.#video.paused;
+    trace(this, 'lifecycle', 'src-change', { src, wasPlaying });
     this.#stopPump();
     this.#teardownPresentation();
     this.#teardownMse();
@@ -205,6 +209,9 @@ export class VidelPlayer extends HTMLElement {
       if (this.hasAttribute('debug')) this.#propagateDebug(true);
 
       await this.#setupMse(presEl, signal);
+      // Continue playback if the stream was playing when src changed (e.g.
+      // mid-stream reload or error-free quality-level swap at player level).
+      if (wasPlaying) this.#video.play().catch(() => {});
     } catch (err: unknown) {
       if ((err as any)?.name === 'AbortError') return;
       console.error('[videl-player] load failed:', err);
@@ -235,6 +242,8 @@ export class VidelPlayer extends HTMLElement {
 
     if (signal.aborted || ms.readyState !== 'open') return;
 
+    trace(this, 'mse', 'source-open', {});
+
     // Create one SourceBuffer per unique content type from the presentation.
     const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')];
     for (const ads of adsSets) {
@@ -259,6 +268,7 @@ export class VidelPlayer extends HTMLElement {
       }
 
       try {
+        trace(this, 'mse', 'add-source-buffer', { contentType, mimeAndCodecs });
         const sb  = ms.addSourceBuffer(mimeAndCodecs);
         const msb = new ManagedSourceBuffer(sb);
         this.#sourceBuffers.set(contentType, msb);
@@ -275,6 +285,10 @@ export class VidelPlayer extends HTMLElement {
     (presEl as any).setAttribute('slot', 'active');
     this.#activePresentation = presEl;
 
+    trace(this, 'mse', 'setup-complete', {
+      sourceBuffers: [...this.#sourceBuffers.keys()],
+    });
+
     this.#startPump();
   }
 
@@ -289,6 +303,7 @@ export class VidelPlayer extends HTMLElement {
 
   #teardownMse(): void {
     if (this.#mediaSource) {
+      trace(this, 'mse', 'teardown', { readyState: this.#mediaSource.readyState });
       try {
         if (this.#mediaSource.readyState === 'open') this.#mediaSource.endOfStream();
       } catch { /* ignore */ }
@@ -347,6 +362,7 @@ export class VidelPlayer extends HTMLElement {
   // ── Seek ──────────────────────────────────────────────────────────────────
 
   #seekTo(time: number): void {
+    trace(this, 'lifecycle', 'seek', { to: +time.toFixed(3) });
     this.#video.currentTime = time;
     // Pump immediately so the correct segment is activated without waiting
     // for the next scheduled tick.
@@ -375,15 +391,24 @@ export class VidelPlayer extends HTMLElement {
     // and would inflate the estimate with a non-representative sample.
     if (bytes > 0 && fetchMs >= 50) {
       const measuredBps = (bytes * 8) / (fetchMs / 1000);
-      // EWMA α=0.3: weight recent measurements without overreacting to spikes.
-      this.#bandwidth = 0.7 * this.#bandwidth + 0.3 * measuredBps;
+      // EWMA α=0.334: weight recent measurements without overreacting to spikes.
+      this.#bandwidth = 0.666 * this.#bandwidth + 0.334 * measuredBps;
     }
   };
 
   // ── Error recovery ────────────────────────────────────────────────────────
 
   #onMseError = (_event: Event): void => {
-    const savedTime = this.#video.currentTime;
+    // Snapshot full playback state before teardown.
+    // #teardownMse() calls video.load() which unconditionally pauses and
+    // resets the element — we must restore both position AND playing state.
+    const savedTime  = this.#video.currentTime;
+    const wasPlaying = !this.#video.paused;
+    trace(this, 'mse', 'rebuild-start', {
+      reason:     'videl:mse:error',
+      savedTime:  +savedTime.toFixed(3),
+      wasPlaying,
+    });
 
     this.#teardownPresentation();
     this.#teardownMse();
@@ -394,6 +419,11 @@ export class VidelPlayer extends HTMLElement {
       const ctrl = new AbortController();
       this.#setupMse(pres, ctrl.signal).then(() => {
         if (savedTime > 0) this.#video.currentTime = savedTime;
+        // Resume playback if it was active before the error.  The play()
+        // call may resolve immediately (if data is already buffered) or
+        // wait until the pump has appended enough — either way the browser
+        // handles the timing.
+        if (wasPlaying) this.#video.play().catch(() => {});
       }).catch(() => {});
     }
   };

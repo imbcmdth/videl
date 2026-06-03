@@ -88,6 +88,22 @@ Listens for `videl:mse:error` (bubbles). On receipt, executes the full rebuild p
 
 ---
 
+## Init Segment Re-send on Rendition Switch
+
+Every `<videl-representation>` tracks whether its initialisation segment has been appended to the shared `SourceBuffer` via an `#initAppended` flag.  This flag is reset to `false` whenever the representation's `slot` attribute is removed — i.e. whenever it is deactivated.
+
+**Why this matters:** the `SourceBuffer` is shared across all representations within an `<videl-adaptation-set>`.  When representation A is deactivated and representation B becomes active, B appends its own init segment, reconfiguring the SourceBuffer's decoder parameters (resolution, bitrate, SPS/PPS).  If A is later re-activated without re-sending its init, its media segments are decoded against B's parameters → MSE error, corrupted frames, or dropped video.
+
+**Rule:** *every activation of a representation — including re-activations after a switch away — must append that representation's init segment to the SourceBuffer before any media segments.*
+
+Resetting `#initAppended` on slot removal enforces this invariant automatically through the existing `#startInit()` path, with no extra coordination between elements.
+
+**Cost:** one additional network request (~1–4 KB moov box) per re-activation.  This is negligible relative to media segment sizes and is the correct trade-off for decoder correctness.
+
+This behaviour is covered by dedicated regression tests in `test/videl-representation.spec.ts` (`init segment is re-fetched after deactivation` and `rendition A→B→A switch`).
+
+---
+
 ## Codec Change Handling
 
 `<videl-adaptation-set>` detects when an ABR switch selects a representation whose codec string is incompatible with the current SourceBuffer's type:

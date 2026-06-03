@@ -363,3 +363,138 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
   expect(result.afterDone[0]).toBe('active');
   expect(result.afterDone[1]).toBe('next');
 });
+
+// ===========================================================================
+// Init segment re-append on rendition switch (ADR-0001)
+//
+// When the SourceBuffer is shared across representations in an AdaptationSet
+// and a rendition switch occurs, the incoming representation MUST re-send its
+// init segment before appending any media segments — even if it was previously
+// active.  Skipping the re-send leaves the SourceBuffer configured for the
+// intermediate representation's codec/dimensions, causing MSE errors.
+// ===========================================================================
+
+test('init segment is re-fetched after deactivation — even if it was appended before', async ({ page }) => {
+  // Track how many times the init URL is requested.
+  let initFetchCount = 0;
+  await page.route('**/fixtures/video-init.mp4', async route => {
+    initFetchCount++;
+    await route.fulfill({ contentType: 'video/mp4', body: INIT_BYTES });
+  });
+
+  const result = await page.evaluate(async () => {
+    const { VidelRepresentation } = await import('/dist/index.js');
+
+    const mockMSB = {
+      append: async (_bytes: ArrayBuffer) => {},
+      get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
+    };
+
+    const rep = document.createElement('videl-representation') as any;
+    rep.setAttribute('initialization-url', '/fixtures/video-init.mp4');
+    rep.sourceBuffer = mockMSB;
+    document.body.appendChild(rep);
+
+    // First activation — init should be fetched.
+    rep.setAttribute('slot', 'active');
+    await new Promise<void>(r => setTimeout(r, 400));
+    const initAppendedAfterFirst = rep._initAppended ?? 'unknown';
+
+    // Deactivate.
+    rep.removeAttribute('slot');
+    await new Promise<void>(r => setTimeout(r, 50));
+
+    // Second activation — init must be re-fetched, not skipped.
+    rep.setAttribute('slot', 'active');
+    await new Promise<void>(r => setTimeout(r, 400));
+
+    return { initAppendedAfterFirst };
+  });
+
+  // The init segment should have been fetched TWICE — once per activation.
+  expect(initFetchCount).toBe(2);
+});
+
+test('rendition A→B→A switch: each activation re-sends init to shared SourceBuffer', async ({ page }) => {
+  // Two separate init URLs, one per rendition.
+  let initACalls = 0;
+  let initBCalls = 0;
+  await page.route('**/fixtures/init-a.mp4', async route => {
+    initACalls++;
+    await route.fulfill({ contentType: 'video/mp4', body: INIT_BYTES });
+  });
+  await page.route('**/fixtures/init-b.mp4', async route => {
+    initBCalls++;
+    await route.fulfill({ contentType: 'video/mp4', body: INIT_BYTES });
+  });
+
+  await page.evaluate(async () => {
+    const { VidelAdaptationSet } = await import('/dist/index.js');
+
+    const mockMSB = {
+      changeTypeCalls: [] as string[],
+      changeType(type: string) { this.changeTypeCalls.push(type); },
+      abort() { return Promise.resolve(); },
+      append: async (_bytes: ArrayBuffer) => {},
+      get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
+    };
+
+    const ads = document.createElement('videl-adaptation-set') as any;
+    ads.setAttribute('content-type', 'video');
+    ads.setAttribute('mime-type', 'video/mp4');
+    ads.setAttribute('codecs', 'avc1.64001e');
+    document.body.appendChild(ads);
+
+    // Two representations at different bitrates.
+    const repA = document.createElement('videl-representation') as any;
+    repA.setAttribute('id', 'rep-a');
+    repA.setAttribute('bandwidth', '500000');
+    repA.setAttribute('initialization-url', '/fixtures/init-a.mp4');
+    repA.setAttribute('mime-type', 'video/mp4');
+    repA.setAttribute('codecs', 'avc1.64001e');
+
+    const repB = document.createElement('videl-representation') as any;
+    repB.setAttribute('id', 'rep-b');
+    repB.setAttribute('bandwidth', '2000000');
+    repB.setAttribute('initialization-url', '/fixtures/init-b.mp4');
+    repB.setAttribute('mime-type', 'video/mp4');
+    repB.setAttribute('codecs', 'avc1.64001e');
+
+    ads.appendChild(repA);
+    ads.appendChild(repB);
+
+    ads.sourceBuffer = mockMSB;
+    ads.setAttribute('slot', 'active');
+    await new Promise<void>(r => setTimeout(r, 50));
+
+    // Step 1: low bandwidth → selects rep-a.
+    ads.videlUpdate({
+      bandwidth: 600_000, currentTime: 0, playbackRate: 1, bufferAhead: 30,
+      buffered: { length: 0, start: () => 0, end: () => 0 },
+      sourceBuffered: new Map(),
+    });
+    await new Promise<void>(r => setTimeout(r, 500)); // wait for rep-a init
+
+    // Step 2: high bandwidth → switches to rep-b.
+    ads.videlUpdate({
+      bandwidth: 5_000_000, currentTime: 0, playbackRate: 1, bufferAhead: 30,
+      buffered: { length: 0, start: () => 0, end: () => 0 },
+      sourceBuffered: new Map(),
+    });
+    await new Promise<void>(r => setTimeout(r, 500)); // wait for rep-b init
+
+    // Step 3: bandwidth drops → switches back to rep-a.
+    ads.videlUpdate({
+      bandwidth: 600_000, currentTime: 0, playbackRate: 1, bufferAhead: 30,
+      buffered: { length: 0, start: () => 0, end: () => 0 },
+      sourceBuffered: new Map(),
+    });
+    await new Promise<void>(r => setTimeout(r, 500)); // wait for rep-a init again
+  });
+
+  // Each time a representation becomes active its init must be fetched.
+  // rep-a is activated twice (step 1 and step 3).
+  expect(initACalls).toBe(2);
+  // rep-b is activated once (step 2).
+  expect(initBCalls).toBe(1);
+});

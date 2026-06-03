@@ -57,9 +57,10 @@ const player    = document.getElementById('player')    as HTMLElement & {
 const urlInput  = document.getElementById('url-input') as HTMLInputElement;
 const urlSelect = document.getElementById('url-select') as HTMLSelectElement;
 const loadBtn   = document.getElementById('load-btn')  as HTMLButtonElement;
-const clearBtn  = document.getElementById('clear-btn') as HTMLButtonElement;
-const pauseBtn  = document.getElementById('pause-btn') as HTMLButtonElement;
-const logEl     = document.getElementById('log')       as HTMLDivElement;
+const clearBtn   = document.getElementById('clear-btn')    as HTMLButtonElement;
+const pauseBtn   = document.getElementById('pause-btn')    as HTMLButtonElement;
+const traceToggle = document.getElementById('trace-toggle') as HTMLInputElement;
+const logEl      = document.getElementById('log')          as HTMLDivElement;
 
 // ---------------------------------------------------------------------------
 // LocalStorage helpers
@@ -225,6 +226,25 @@ function flushBuffer(): void {
   for (const entry of buffer) renderEntry(entry);
   buffer = [];
 }
+
+// ── Trace toggle ───────────────────────────────────────────────────────────
+
+// Trace events are hidden by default; the checkbox reveals them.
+player.addEventListener('videl:trace', (e: Event) => {
+  if (!traceToggle.checked) return;
+  const ce = e as CustomEvent;
+  const { category, action, data } = ce.detail ?? {};
+  const source = e.target instanceof Element
+    ? `<${e.target.tagName.toLowerCase()}>`
+    : '?';
+  addEntry({
+    ts:     timestamp(),
+    event:  `${category}:${action}`,
+    source,
+    detail: data && Object.keys(data).length ? compactJson(data) : '',
+    cls:    'trace-event',
+  });
+});
 
 // ── Pause / Resume ─────────────────────────────────────────────────────────
 

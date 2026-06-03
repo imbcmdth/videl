@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from 'lit';
 import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import { trace } from '../trace';
 
 /**
  * `<videl-segment>` — execution leaf of the manifest tree.
@@ -81,6 +82,7 @@ export class VidelSegment extends LitElement {
 
   /** Begin an async fetch and hold the result in memory when complete. */
   #startFetch(): void {
+    trace(this, 'fetch', 'prefetch-start', { url: this.url, startTime: this.startTime });
     this.#controller = new AbortController();
     this.#fetchPromise = this.#doFetch(this.#controller.signal);
 
@@ -119,6 +121,7 @@ export class VidelSegment extends LitElement {
       }
     } else {
       // No prefetch at all: fetch inline now.
+      trace(this, 'fetch', 'fetch-start', { url: this.url, startTime: this.startTime });
       this.#controller = new AbortController();
       try {
         bytes = await this.#doFetch(this.#controller.signal);
@@ -132,18 +135,32 @@ export class VidelSegment extends LitElement {
     // Guard: we may have been deactivated while awaiting.
     if (this.getAttribute('slot') !== 'active') return;
 
+    // Trace the completed fetch regardless of which path brought us here.
+    if (this.#fetchStats) {
+      const { bytes: b, fetchMs } = this.#fetchStats;
+      trace(this, 'fetch', 'fetch-complete', {
+        url:     this.url,
+        bytes:   b,
+        fetchMs: Math.round(fetchMs),
+        bps:     Math.round((b * 8) / (fetchMs / 1000)),
+      });
+    }
+
     if (!this.sourceBuffer) {
       this.#fireError(new Error('videl-segment: sourceBuffer property not set before activation'));
       return;
     }
 
+    trace(this, 'buffer', 'append-start', { startTime: this.startTime, duration: this.duration });
     try {
       await this.sourceBuffer.append(bytes);
     } catch (err) {
       if (this.getAttribute('slot') !== 'active') return;
+      trace(this, 'buffer', 'append-error', { startTime: this.startTime, error: String(err) });
       this.#fireError(err as Error);
       return;
     }
+    trace(this, 'buffer', 'append-complete', { startTime: this.startTime, duration: this.duration });
 
     if (this.getAttribute('slot') !== 'active') return;
 
@@ -165,7 +182,10 @@ export class VidelSegment extends LitElement {
 
   /** Abort any in-flight fetch and discard held bytes. */
   #abort(): void {
-    this.#controller?.abort();
+    if (this.#controller) {
+      trace(this, 'fetch', 'fetch-abort', { url: this.url, startTime: this.startTime });
+      this.#controller.abort();
+    }
     this.#controller   = null;
     this.#fetchPromise = null;
     this.#fetchedBytes = null;
