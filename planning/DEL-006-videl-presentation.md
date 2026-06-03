@@ -1,7 +1,8 @@
 # DEL-006: `<videl-presentation>`
 
 **Depends on:** DEL-001 (mixins), DEL-005 (`<videl-period>`)  
-**Deliverable type:** Custom element + Playwright tests
+**Deliverable type:** Custom element + Playwright tests  
+**Status:** Implemented
 
 ---
 
