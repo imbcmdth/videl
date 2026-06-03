@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Exercises: $Time$ template variable, SegmentTimeline with r="-1",
+             timescale=90000, presentationTimeOffset, codec inheritance
+             (codecs on AdaptationSet only, not on Representation).
+-->
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"
+     profiles="urn:mpeg:dash:profile:isoff-live:2011"
+     type="static"
+     mediaPresentationDuration="PT30S"
+     minBufferTime="PT2S">
+  <Period id="p0" start="PT0S" duration="PT30S">
+    <!-- codecs only on AdaptationSet — Representations must inherit -->
+    <AdaptationSet mimeType="video/mp4" contentType="video" codecs="avc1.64001f">
+      <SegmentTemplate
+        media="https://cdn.example.com/video/seg-$Time$.m4s"
+        initialization="https://cdn.example.com/video/init.mp4"
+        timescale="90000"
+        presentationTimeOffset="0">
+        <SegmentTimeline>
+          <!-- 3 s segments: d=270000 ticks @ 90000 Hz -->
+          <S t="0"      d="270000" r="-1"/>
+        </SegmentTimeline>
+      </SegmentTemplate>
+      <!-- No codecs attribute here — must inherit avc1.64001f from AdaptationSet -->
+      <Representation id="vid-high" bandwidth="2500000" width="1920" height="1080"/>
+      <Representation id="vid-low"  bandwidth="600000"  width="640"  height="360"/>
+    </AdaptationSet>
+    <AdaptationSet mimeType="audio/mp4" contentType="audio" codecs="mp4a.40.2" lang="fr">
+      <SegmentTemplate
+        media="https://cdn.example.com/audio/seg-$Number%05d$.m4s"
+        initialization="https://cdn.example.com/audio/init.mp4"
+        timescale="48000"
+        startNumber="1"
+        duration="144000"/>
+      <Representation id="aud-128" bandwidth="128000"/>
+    </AdaptationSet>
+  </Period>
+</MPD>
