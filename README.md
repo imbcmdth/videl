@@ -172,6 +172,14 @@ With [`media-chrome`](https://github.com/muxinc/media-chrome) controls:
 | `tick-ms` | `250` | Pump interval in milliseconds |
 | `debug` | — | When present, all child elements render a debug overlay |
 
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Jon-Carlos Rivera
+
+---
+
 ### Listening to trace events
 
 ```js
