@@ -12,21 +12,33 @@ import * as path from 'path';
 const FIXTURE_DIR = path.join(__dirname, 'fixtures');
 const INIT_BYTES = Array.from(fs.readFileSync(path.join(FIXTURE_DIR, 'video-init.mp4')));
 const SEG1_BYTES = Array.from(fs.readFileSync(path.join(FIXTURE_DIR, 'video-seg1.mp4')));
-const MIME = 'video/mp4; codecs="avc1.4d401f"';
-const IIFE_PATH = path.join(__dirname, '../dist/foundation.iife.js');
+const MIME = 'video/mp4; codecs="avc1.64001e"';
+const MODULE_PATH = path.join(__dirname, "../dist/index.js");
 
 // ---------------------------------------------------------------------------
 // Per-test page setup
 // ---------------------------------------------------------------------------
 async function setup(page: Page) {
-  await page.setContent(`<!DOCTYPE html><html><body>
-    <video id="v" muted playsinline></video>
-  </body></html>`);
-  await page.addScriptTag({ path: IIFE_PATH });
+  // Serve dist/index.js from disk so the browser can import it by URL.
+  await page.route('**/dist/index.js', route =>
+    route.fulfill({
+      contentType: 'application/javascript; charset=utf-8',
+      body: fs.readFileSync(MODULE_PATH, 'utf8'),
+    })
+  );
+  // Serve a minimal HTML shell at the baseURL origin.
+  await page.route('http://localhost:3000/', route =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<!DOCTYPE html><html><body><video id="v" muted playsinline></video></body></html>`,
+    })
+  );
+  await page.goto('http://localhost:3000/');
 
   // Boot MediaSource + SourceBuffer in the page, expose window.msb
   await page.evaluate(
-    ({ mimeStr, initArr }: { mimeStr: string; initArr: number[] }) => {
+    async ({ mimeStr, initArr }: { mimeStr: string; initArr: number[] }) => {
+      const { ManagedSourceBuffer } = await import('/dist/index.js');
       return new Promise<void>((resolve, reject) => {
         const ms = new MediaSource();
         const video = document.getElementById('v') as HTMLVideoElement;
@@ -34,8 +46,7 @@ async function setup(page: Page) {
         ms.addEventListener('sourceopen', () => {
           try {
             const sb = ms.addSourceBuffer(mimeStr);
-            const MSB = (window as any).VidelFoundation.ManagedSourceBuffer;
-            (window as any).msb = new MSB(sb);
+            (window as any).msb = new ManagedSourceBuffer(sb);
             (window as any)._sb = sb;
             // Append init segment so the buffer is ready for media segments
             sb.addEventListener('updateend', () => resolve(), { once: true });

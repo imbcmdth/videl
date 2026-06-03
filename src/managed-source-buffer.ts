@@ -52,13 +52,22 @@ export class ManagedSourceBuffer {
    */
   async abort(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.queue.push({
-        kind: 'abort',
-        args: [],
-        resolve,
-        reject
-      });
-      this.processQueue();
+      // Immediately reject all queued-but-not-yet-started operations.
+      const startIdx = this.isProcessing ? 1 : 0;
+      const drained = this.queue.splice(startIdx);
+      for (const op of drained) {
+        op.reject(new Error('Aborted'));
+      }
+
+      if (!this.isProcessing) {
+        // Nothing in flight — resolve straight away.
+        resolve();
+        return;
+      }
+
+      // An operation is in flight. Queue a sentinel that will resolve once it
+      // finishes (processQueue will pick it up and handle the abort case).
+      this.queue.push({ kind: 'abort', args: [], resolve, reject });
     });
   }
 
@@ -93,50 +102,62 @@ export class ManagedSourceBuffer {
     this.isProcessing = true;
     const operation = this.queue[0];
 
-    const resolve = () => {
+    const onSuccess = () => {
+      this.sourceBuffer.removeEventListener('updateend', onSuccess);
+      this.sourceBuffer.removeEventListener('error', onError);
       operation.resolve();
       this.queue.shift();
       this.isProcessing = false;
-      this.processQueue(); // Process next operation
+      this.processQueue();
     };
 
-    const reject = (error: Error) => {
-      operation.reject(error);
-      this.queue.shift();
+    const onError = () => {
+      this.sourceBuffer.removeEventListener('updateend', onSuccess);
+      this.sourceBuffer.removeEventListener('error', onError);
+      const error = new Error('SourceBuffer error occurred');
+      // Flush the entire queue — every pending op is rejected.
+      const ops = this.queue.splice(0);
       this.isProcessing = false;
-      this.processQueue(); // Process next operation
+      for (const op of ops) {
+        op.reject(error);
+      }
     };
 
     try {
       switch (operation.kind) {
         case 'append':
-          this.sourceBuffer.addEventListener('updateend', resolve);
-          this.sourceBuffer.addEventListener('error', (event) => {
-            const error = new Error('SourceBuffer error occurred');
-            reject(error);
-          });
+          this.sourceBuffer.addEventListener('updateend', onSuccess);
+          this.sourceBuffer.addEventListener('error', onError);
           this.sourceBuffer.appendBuffer(operation.args[0]);
           break;
         case 'remove':
-          this.sourceBuffer.addEventListener('updateend', resolve);
-          this.sourceBuffer.addEventListener('error', (event) => {
-            const error = new Error('SourceBuffer error occurred');
-            reject(error);
-          });
+          this.sourceBuffer.addEventListener('updateend', onSuccess);
+          this.sourceBuffer.addEventListener('error', onError);
           this.sourceBuffer.remove(operation.args[0], operation.args[1]);
           break;
         case 'abort':
-          // For abort, we need to handle it specially
-          this.sourceBuffer.addEventListener('updateend', resolve);
-          this.sourceBuffer.addEventListener('error', (event) => {
-            const error = new Error('SourceBuffer error occurred');
-            reject(error);
-          });
-          this.sourceBuffer.abort();
+          // By the time abort is dequeued, the in-flight op has already
+          // finished, so sourceBuffer.updating is false. Just resolve.
+          if (this.sourceBuffer.updating) {
+            this.sourceBuffer.addEventListener('updateend', onSuccess);
+            this.sourceBuffer.addEventListener('error', onError);
+            this.sourceBuffer.abort();
+          } else {
+            operation.resolve();
+            this.queue.shift();
+            this.isProcessing = false;
+            this.processQueue();
+          }
           break;
       }
     } catch (error) {
-      reject(error as Error);
+      this.sourceBuffer.removeEventListener('updateend', onSuccess);
+      this.sourceBuffer.removeEventListener('error', onError);
+      const ops = this.queue.splice(0);
+      this.isProcessing = false;
+      for (const op of ops) {
+        op.reject(error as Error);
+      }
     }
   }
 }
