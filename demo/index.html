@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>videl-player demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f0f0f;
+      --surface: #1a1a1a;
+      --border:  #333;
+      --text:    #e8e8e8;
+      --muted:   #888;
+      --accent:  #4f9cf9;
+      --danger:  #e05252;
+      font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 13px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 15px; font-weight: 600; color: var(--accent); }
+    header .subtitle { color: var(--muted); font-size: 12px; }
+
+    /* ── Main two-column layout ──────────────────────────────────── */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      overflow: hidden;
+    }
+
+    /* ── Player column ───────────────────────────────────────────── */
+    .player-col {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    media-controller {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    videl-player {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* ── Event log column ────────────────────────────────────────── */
+    .log-col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .log-header h2 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .log-controls { display: flex; gap: 6px; }
+
+    button {
+      padding: 3px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      transition: background .15s, border-color .15s;
+    }
+    button:hover   { background: var(--surface); border-color: var(--accent); }
+    button.active  { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.danger  { border-color: var(--danger); color: var(--danger); }
+    button.danger:hover { background: var(--danger); color: #fff; }
+
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .log-entry {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 4px 8px;
+      padding: 4px 12px;
+      border-bottom: 1px solid #1f1f1f;
+      line-height: 1.4;
+      font-size: 11px;
+    }
+    .log-entry:hover { background: var(--surface); }
+
+    .log-ts    { color: var(--muted); white-space: nowrap; }
+    .log-body  { display: flex; flex-direction: column; gap: 1px; }
+    .log-event { font-weight: 600; }
+    .log-event.videl-done             { color: #6bbf6b; }
+    .log-event.videl-seg-error,
+    .log-event.videl-mse-error        { color: var(--danger); }
+    .log-event.videl-repr-switched    { color: #f9c84f; }
+    .log-event.videl-mse-incompatible { color: #f9844f; }
+    .log-event.media-event            { color: var(--accent); }
+    .log-source { color: var(--muted); font-size: 10px; }
+    .log-detail { color: #aaa; font-size: 10px; word-break: break-all; }
+
+    /* ── URL bar (footer) ────────────────────────────────────────── */
+    footer {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      align-items: center;
+    }
+
+    #url-select {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    #url-input {
+      flex: 1;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+    #url-input:focus { border-color: var(--accent); }
+
+    #load-btn {
+      padding: 5px 16px;
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    #load-btn:hover { background: #6baaff; }
+
+    /* ── Responsive: single column below 768px ───────────────────── */
+    @media (max-width: 767px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        overflow-y: auto;
+      }
+      .player-col  { border-right: none; border-bottom: 1px solid var(--border); }
+      .log-col     { min-height: 240px; }
+      footer       { flex-wrap: wrap; }
+      #url-select  { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>videl-player</h1>
+  <span class="subtitle">DASH adaptive streaming · DEL-009 demo</span>
+</header>
+
+<main>
+  <div class="player-col">
+    <media-controller id="mc">
+      <videl-player id="player" slot="media"></videl-player>
+      <media-control-bar>
+        <media-play-button></media-play-button>
+        <media-time-range></media-time-range>
+        <media-time-display show-duration></media-time-display>
+        <media-mute-button></media-mute-button>
+        <media-volume-range></media-volume-range>
+        <media-fullscreen-button></media-fullscreen-button>
+      </media-control-bar>
+    </media-controller>
+  </div>
+
+  <div class="log-col">
+    <div class="log-header">
+      <h2>Event Log</h2>
+      <div class="log-controls">
+        <button id="pause-btn">Pause</button>
+        <button id="clear-btn" class="danger">Clear</button>
+      </div>
+    </div>
+    <div id="log" role="log" aria-live="polite" aria-label="Event log"></div>
+  </div>
+</main>
+
+<footer>
+  <select id="url-select" aria-label="Pre-configured or recent stream URL"></select>
+  <input id="url-input" type="url" placeholder="https://example.com/stream.mpd"
+         aria-label="DASH MPD URL" spellcheck="false" autocomplete="off" />
+  <button id="load-btn">Load</button>
+</footer>
+
+<script type="module" src="dist/bundle.js"></script>
+</body>
+</html>

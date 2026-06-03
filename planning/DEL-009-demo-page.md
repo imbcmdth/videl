@@ -1,7 +1,8 @@
 # DEL-009: Demo Page
 
 **Depends on:** DEL-008 (`<videl-player>` complete and working)  
-**Deliverable type:** Static web page + Vite build config
+**Deliverable type:** Static web page + esbuild config  
+**Status:** Implemented
 
 ---
 
