@@ -35,6 +35,7 @@ This is the shared memory for all agents working on the `videl-castro` project. 
 - **[2026-06-01] Segment fetch abort:** `<videl-segment>` holds an `AbortController`; aborts on `slot` removal. Covers seek, ABR switch, and cascade deactivation.
 - **[2026-06-01] State propagation:** pump — `videl-castro` calls `update(PlayerState)` down the active path on each throttled tick (default 250ms, configurable via `tick-ms`). Events — completion/error bubble upward immediately via CustomEvents.
 - **[2026-06-01] Debug rendering:** `debug` attribute on any element triggers a visual `render()` of its data and slot state via Lit. No-op in production.
+- **[2026-06-02] Private fields:** Use native ES private class fields (`#field`) rather than underscore-prefixed naming conventions (`_field`). Modern browsers are the target; `#` fields are supported and provide true encapsulation.
 - **[2026-06-01] ADD:** `planning/ADD-001-dom-mirror-architecture.md`
 
 ## User Preferences
