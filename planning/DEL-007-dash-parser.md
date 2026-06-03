@@ -1,6 +1,6 @@
-# DEL-006: DASH Manifest Parser
+# DEL-007: DASH Manifest Parser
 
-**Depends on:** DEL-002–DEL-005 (element definitions must be registered before parser creates them)  
+**Depends on:** DEL-002–DEL-006 (all element definitions must be registered before parser creates them)  
 **Deliverable type:** TypeScript module + unit tests
 
 ---

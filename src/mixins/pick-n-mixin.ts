@@ -35,8 +35,17 @@ export function PickNMixin<TBase extends CEBase>(Base: TBase) {
     #nextByKey: Map<string, Element> = new Map();
 
     static get observedAttributes(): string[] {
-      const parentAttrs: string[] = (Base as any).observedAttributes ?? [];
-      return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+      // Same fix as PickOneMixin: walk up to find the getter, call with `this`.
+      let proto: any = Base;
+      while (proto) {
+        const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
+        if (desc?.get) {
+          const parentAttrs: string[] = desc.get.call(this) ?? [];
+          return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+        }
+        proto = Object.getPrototypeOf(proto);
+      }
+      return ['slot'];
     }
 
     connectedCallback(): void {

@@ -1,6 +1,6 @@
-# DEL-007: `<videl-presentation>`
+# DEL-006: `<videl-presentation>`
 
-**Depends on:** DEL-001 (mixins), DEL-005 (`<videl-period>`), DEL-006 (parser — populates children)  
+**Depends on:** DEL-001 (mixins), DEL-005 (`<videl-period>`)  
 **Deliverable type:** Custom element + Playwright tests
 
 ---

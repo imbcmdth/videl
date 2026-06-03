@@ -35,8 +35,22 @@ export function PickOneMixin<TBase extends CEBase>(Base: TBase) {
     #nextChild: Element | null = null;
 
     static get observedAttributes(): string[] {
-      const parentAttrs: string[] = (Base as any).observedAttributes ?? [];
-      return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+      // Walk up the static prototype chain from Base to find the first ancestor
+      // that owns an `observedAttributes` getter, then invoke it with `this`
+      // (the actual subclass) as receiver. When Base is LitElement this lets
+      // the subclass finalize its full reactive-property attribute set rather
+      // than getting the empty list of LitElement itself. For plain HTMLElement
+      // bases no getter is found and we fall back to ['slot'].
+      let proto: any = Base;
+      while (proto) {
+        const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
+        if (desc?.get) {
+          const parentAttrs: string[] = desc.get.call(this) ?? [];
+          return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+        }
+        proto = Object.getPrototypeOf(proto);
+      }
+      return ['slot'];
     }
 
     connectedCallback(): void {

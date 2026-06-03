@@ -1,7 +1,8 @@
 # DEL-003: `<videl-representation>`
 
 **Depends on:** DEL-000 (ManagedSourceBuffer, PlayerState), DEL-001 (mixins), DEL-002 (`<videl-segment>`)  
-**Deliverable type:** Custom element + Playwright tests
+**Deliverable type:** Custom element + Playwright tests  
+**Status:** Implemented
 
 ---
 
