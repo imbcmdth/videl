@@ -4,9 +4,21 @@ import type { PlayerState } from '../player-state';
 import type { ManagedSourceBuffer } from '../managed-source-buffer';
 
 // ---------------------------------------------------------------------------
-// Utility: check whether [startTime, startTime+duration) is fully covered by
-// a TimeRanges object. A small tolerance (0.1 s) handles float imprecision.
+// SourceBuffer-aware buffering utilities.
+//
+// Both functions operate on a single SourceBuffer's TimeRanges rather than
+// the video element's combined `.buffered`, because:
+//  - video.buffered is the INTERSECTION of all SourceBuffers — if audio lags,
+//    it makes video appear less buffered than it actually is.
+//  - Each representation owns exactly one SourceBuffer and should make fetch
+//    decisions based on that buffer's state alone.
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true when [startTime, startTime+duration) is fully covered by the
+ * given TimeRanges. A 0.1 s tolerance handles floating-point imprecision in
+ * browser-reported buffer boundaries.
+ */
 function isBuffered(startTime: number, duration: number, buffered: TimeRanges): boolean {
   const end = startTime + duration;
   for (let i = 0; i < buffered.length; i++) {
@@ -15,6 +27,24 @@ function isBuffered(startTime: number, duration: number, buffered: TimeRanges): 
     }
   }
   return false;
+}
+
+/**
+ * Find the TimeRange that contains `t` (with 0.1 s tolerance) and return how
+ * many seconds extend past `t` to the end of that range.
+ *
+ * Returns 0 when `t` falls in a gap — this correctly signals that we need to
+ * fetch, even if other ranges exist further along the timeline.  Non-contiguous
+ * buffers are handled by the segment-selection walk: once a gap is filled the
+ * next tick will find a longer contiguous range and suppress further fetches.
+ */
+function bufferedAhead(t: number, buffered: TimeRanges): number {
+  for (let i = 0; i < buffered.length; i++) {
+    if (buffered.start(i) <= t + 0.1 && buffered.end(i) > t) {
+      return buffered.end(i) - t;
+    }
+  }
+  return 0; // t is in a gap or before any buffered range
 }
 
 /**
@@ -128,12 +158,29 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   videlUpdate(state: PlayerState): void {
     if (!this.#initAppended) return;
     if (this.getAttribute('slot') !== 'active') return;
+    if (!this.#sourceBuffer) return;
 
-    const { currentTime, buffered } = state;
+    // Resolve this representation's buffered TimeRanges from the state snapshot
+    // (preferred — no direct SourceBuffer access needed in the hot path) using
+    // the parent adaptation set's content-type as the lookup key.
+    // Falls back to reading from the SourceBuffer directly when running outside
+    // a full player context (e.g. unit tests with a mock MSB).
+    const contentType = this.closest('videl-adaptation-set')
+      ?.getAttribute('content-type') ?? '';
+    const sbBuffered: TimeRanges =
+      state.sourceBuffered?.get(contentType) ?? this.#sourceBuffer.buffered;
+
+    const { currentTime, bufferAhead } = state;
+
+    // Suppress all fetching while the contiguous buffered run from currentTime
+    // is already long enough.  If currentTime is in a gap, bufferedAhead returns
+    // 0, so fetching is always allowed — we fill gaps before extending the buffer.
+    if (bufferedAhead(currentTime, sbBuffered) >= bufferAhead) return;
+
     const segs = this.#childSegments;
     if (segs.length === 0) return;
 
-    // 1. Find the index of the segment whose range covers currentTime.
+    // 1. Find the segment whose time range covers currentTime.
     let startIdx = segs.findIndex(
       s => s.startTime <= currentTime && currentTime < s.startTime + s.duration
     );
@@ -143,27 +190,31 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     }
     if (startIdx < 0) return; // currentTime is past the last segment
 
-    // 2. Walk forward past already-buffered segments to find the work target.
+    // 2. Walk forward past segments already present in the SourceBuffer.
+    //    This fills gaps: if [0-10] and [15-30] are buffered and currentTime=5,
+    //    we skip segment 0 (buffered), land on the segment covering 10-15 (gap),
+    //    and fetch it.
     let targetIdx = startIdx;
     while (
       targetIdx < segs.length &&
-      isBuffered(segs[targetIdx].startTime, segs[targetIdx].duration, buffered)
+      isBuffered(segs[targetIdx].startTime, segs[targetIdx].duration, sbBuffered)
     ) {
       targetIdx++;
     }
-    if (targetIdx >= segs.length) return; // everything ahead is buffered
+    if (targetIdx >= segs.length) return; // every segment ahead is buffered
 
     const target = segs[targetIdx];
     if (target.getAttribute('slot') !== 'active') {
       target.sourceBuffer = this.#sourceBuffer;
-      this.activateChild(target); // PickOneMixin removes the previous active child
+      this.activateChild(target); // PickOneMixin deactivates any previous active segment
     }
 
-    // 3. Find the next unbuffered segment after the target for prefetching.
+    // 3. Find the next unbuffered segment after the target and queue it for
+    //    prefetch, skipping any that are already in the SourceBuffer.
     let nextIdx = targetIdx + 1;
     while (
       nextIdx < segs.length &&
-      isBuffered(segs[nextIdx].startTime, segs[nextIdx].duration, buffered)
+      isBuffered(segs[nextIdx].startTime, segs[nextIdx].duration, sbBuffered)
     ) {
       nextIdx++;
     }

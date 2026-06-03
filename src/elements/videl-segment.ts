@@ -51,6 +51,8 @@ export class VidelSegment extends LitElement {
   #fetchPromise: Promise<ArrayBuffer> | null = null;
   /** Non-null once prefetch completes and bytes are held in memory. */
   #fetchedBytes: ArrayBuffer | null = null;
+  /** Throughput sample from the most recent completed fetch. */
+  #fetchStats: { bytes: number; fetchMs: number } | null = null;
 
   // ── Slot lifecycle ────────────────────────────────────────────────────────
 
@@ -149,7 +151,14 @@ export class VidelSegment extends LitElement {
       new CustomEvent('videl:done', {
         bubbles: true,
         composed: true,
-        detail: { startTime: this.startTime, duration: this.duration },
+        detail: {
+          startTime: this.startTime,
+          duration:  this.duration,
+          // Throughput data for the player's bandwidth estimator.
+          // bytes: total body bytes received; fetchMs: wall-clock fetch time.
+          bytes:    this.#fetchStats?.bytes   ?? 0,
+          fetchMs:  this.#fetchStats?.fetchMs ?? 0,
+        },
       })
     );
   }
@@ -157,9 +166,10 @@ export class VidelSegment extends LitElement {
   /** Abort any in-flight fetch and discard held bytes. */
   #abort(): void {
     this.#controller?.abort();
-    this.#controller  = null;
+    this.#controller   = null;
     this.#fetchPromise = null;
     this.#fetchedBytes = null;
+    this.#fetchStats   = null;
   }
 
   #fireError(error: Error): void {
@@ -177,11 +187,15 @@ export class VidelSegment extends LitElement {
     if (this.byteRange) {
       headers['Range'] = `bytes=${this.byteRange}`;
     }
+    const t0       = performance.now();
     const response = await fetch(this.url, { signal, headers });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} fetching ${response.url}`);
     }
-    return response.arrayBuffer();
+    const bytes   = await response.arrayBuffer();
+    // Record timing so the player can compute real network throughput.
+    this.#fetchStats = { bytes: bytes.byteLength, fetchMs: performance.now() - t0 };
+    return bytes;
   }
 
   // ── Lit render ────────────────────────────────────────────────────────────

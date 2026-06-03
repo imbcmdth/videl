@@ -37,7 +37,7 @@ import type { PlayerState } from '../player-state';
  * an equivalent HTMLMediaElement-compatible surface area.
  */
 export class VidelPlayer extends HTMLElement {
-  static observedAttributes = ['src', 'tick-ms', 'debug'];
+  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'debug'];
 
   // ── Internal DOM ──────────────────────────────────────────────────────────
 
@@ -54,12 +54,16 @@ export class VidelPlayer extends HTMLElement {
   // ── Pump state ────────────────────────────────────────────────────────────
 
   #tickMs       = 250;
+  #bufferAhead  = 30; // seconds of forward buffer to maintain
   #pumpTimer:   ReturnType<typeof setTimeout> | null = null;
   #activePresentation: Element | null = null;
 
   // ── Bandwidth estimation (EWMA) ───────────────────────────────────────────
 
-  #bandwidth = 1_000_000; // initial: 1 Mbps
+  // Start optimistically so the ABR algorithm tries a high rendition on the
+  // first tick and adapts downward if the network can't sustain it.  Real
+  // throughput measurements replace this quickly after the first segment.
+  #bandwidth = 5_000_000; // initial: 5 Mbps
 
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
@@ -125,6 +129,8 @@ export class VidelPlayer extends HTMLElement {
       if (value !== old && this.isConnected) this.#beginLoad(value ?? '');
     } else if (name === 'tick-ms') {
       this.#tickMs = Math.max(16, Number(value ?? 250));
+    } else if (name === 'buffer-ahead') {
+      this.#bufferAhead = Math.max(1, Number(value ?? 30));
     } else if (name === 'debug') {
       this.#propagateDebug(value !== null);
     }
@@ -160,6 +166,9 @@ export class VidelPlayer extends HTMLElement {
 
   get playbackRate():  number  { return this.#video.playbackRate; }
   set playbackRate(v: number)  { this.#video.playbackRate = v; }
+
+  get bufferAhead():   number  { return this.#bufferAhead; }
+  set bufferAhead(v: number)   { this.#bufferAhead = Math.max(1, v); }
 
   /** Direct access to the internal <video> element for media-chrome slotting. */
   get nativeVideo(): HTMLVideoElement { return this.#video; }
@@ -316,11 +325,21 @@ export class VidelPlayer extends HTMLElement {
 
   #pumpTick(): void {
     if (!this.#activePresentation) return;
+    // Snapshot each SourceBuffer's buffered ranges independently.
+    // This gives downstream elements an accurate per-track view without
+    // them needing to hold direct SourceBuffer references.
+    const sourceBuffered = new Map<string, TimeRanges>();
+    for (const [contentType, msb] of this.#sourceBuffers) {
+      sourceBuffered.set(contentType, msb.buffered);
+    }
+
     const state: PlayerState = {
-      currentTime:  this.#video.currentTime,
-      buffered:     this.#video.buffered,
-      bandwidth:    this.#bandwidth,
-      playbackRate: Math.max(this.#video.playbackRate, 0.01),
+      currentTime:   this.#video.currentTime,
+      buffered:      this.#video.buffered,
+      bandwidth:     this.#bandwidth,
+      playbackRate:  Math.max(this.#video.playbackRate, 0.01),
+      bufferAhead:   this.#bufferAhead,
+      sourceBuffered,
     };
     (this.#activePresentation as any).videlUpdate(state);
   }
@@ -349,12 +368,15 @@ export class VidelPlayer extends HTMLElement {
     const target = event.target as Element;
     if (target.tagName.toLowerCase() !== 'videl-segment') return;
 
-    // Use the representation's declared bandwidth as a proxy for actual
-    // throughput (EWMA α=0.3 towards the latest sample).
-    const repEl = target.closest('videl-representation');
-    const bw    = Number(repEl?.getAttribute('bandwidth') ?? 0);
-    if (bw > 0) {
-      this.#bandwidth = 0.7 * this.#bandwidth + 0.3 * bw;
+    const { bytes = 0, fetchMs = 0 } = (event as CustomEvent).detail ?? {};
+
+    // Compute actual network throughput from the segment fetch timing.
+    // Ignore implausibly short fetches (< 50 ms) — these are likely cache hits
+    // and would inflate the estimate with a non-representative sample.
+    if (bytes > 0 && fetchMs >= 50) {
+      const measuredBps = (bytes * 8) / (fetchMs / 1000);
+      // EWMA α=0.3: weight recent measurements without overreacting to spikes.
+      this.#bandwidth = 0.7 * this.#bandwidth + 0.3 * measuredBps;
     }
   };
 
