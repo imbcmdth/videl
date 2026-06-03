@@ -25,7 +25,7 @@ Owns a set of `<videl-adaptation-set>` children. Uses `PickNMixin` to activate o
 
 ### Properties (set by parent)
 
-None. `<videl-castro>` sets `sourceBuffer` directly on each `<videl-adaptation-set>` child (see ADR-0001). `<videl-period>` does not handle `MediaSource` or `SourceBuffer` distribution.
+None. `<videl-player>` sets `sourceBuffer` directly on each `<videl-adaptation-set>` child (see ADR-0001). `<videl-period>` does not handle `MediaSource` or `SourceBuffer` distribution.
 
 ### `videlUpdate(state: PlayerState)`
 
@@ -54,7 +54,7 @@ Behavior on each `update()` call:
 | Transition | Behavior |
 |------------|----------|
 | `unslotted → next` | Assign `slot=next` to one adaptation set per unique `content-type` (first in DOM order). No activation yet. |
-| `unslotted → active` | Activate one adaptation set per unique `content-type` value (first in DOM order). `sourceBuffer` must already be set on each adaptation set by `<videl-castro>` before this transition. |
+| `unslotted → active` | Activate one adaptation set per unique `content-type` value (first in DOM order). `sourceBuffer` must already be set on each adaptation set by `<videl-player>` before this transition. |
 | `any → unslotted` | Deactivate all active and next-slotted child adaptation sets (cascade). |
 
 **Selection logic:** for each `content-type` group, activate the first child in DOM order. Custom element implementations can override this by overriding `selectAdaptationSet(contentType, candidates)`.
@@ -68,7 +68,7 @@ Behavior on each `update()` call:
 3. Only one adaptation set per `content-type` is `slot=active` at any time.
 3a. On `slot=next`: one adaptation set per `content-type` receives `slot=next` simultaneously (video-next and audio-next coexist).
 3b. Only one adaptation set per `content-type` is `slot=next` at any time.
-4. `sourceBuffer` is set on each `<videl-adaptation-set>` by `<videl-castro>` before the period is activated — `<videl-period>` does not set it.
+4. `sourceBuffer` is set on each `<videl-adaptation-set>` by `<videl-player>` before the period is activated — `<videl-period>` does not set it.
 5. `update()` is forwarded to all active adaptation sets on every tick.
 6. When `currentTime >= start + duration`: `videl:done` fires exactly once (with `detail.periodId`).
 7. On deactivation: all child adaptation set slots are cleared synchronously.

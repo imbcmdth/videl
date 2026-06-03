@@ -23,7 +23,7 @@ Implement and fully test these before any element work begins.
 interface PlayerState {
   currentTime:  number;       // seconds; from video.currentTime
   buffered:     TimeRanges;   // from video.buffered
-  bandwidth:    number;       // bytes/second — rolling estimate maintained by <videl-castro>
+  bandwidth:    number;       // bytes/second — rolling estimate maintained by <videl-player>
   playbackRate: number;       // from video.playbackRate; default 1.0
                               // ABR and lookahead calculations must scale by this value —
                               // at 2× rate the buffer depletes twice as fast

@@ -8,7 +8,7 @@
 
 ## Summary
 
-The MPD root element. Holds top-level manifest attributes and advances sequentially through its `<videl-period>` children. When used in a playlist context (multiple `<videl-presentation>` siblings under `<videl-castro>`), its `slot=next` behavior prefetches the next manifest.
+The MPD root element. Holds top-level manifest attributes and advances sequentially through its `<videl-period>` children. When used in a playlist context (multiple `<videl-presentation>` siblings under `<videl-player>`), its `slot=next` behavior prefetches the next manifest.
 
 ---
 
@@ -26,7 +26,7 @@ The MPD root element. Holds top-level manifest attributes and advances sequentia
 
 ### Properties (set by parent)
 
-None. `<videl-castro>` sets `sourceBuffer` directly on `<videl-adaptation-set>` elements (see ADR-0001). `<videl-presentation>` does not handle `MediaSource` or `SourceBuffer` distribution.
+None. `<videl-player>` sets `sourceBuffer` directly on `<videl-adaptation-set>` elements (see ADR-0001). `<videl-presentation>` does not handle `MediaSource` or `SourceBuffer` distribution.
 
 ### `videlUpdate(state: PlayerState)`
 
@@ -63,7 +63,7 @@ Mixin: `SequentialMixin(PickOneMixin(LitElement))` — completion event: `videl:
 ## Functional Acceptance Criteria
 
 1. On activation: the first `<videl-period>` child receives `slot=active`.
-2. On activation: the first `<videl-period>` child receives `slot=active`. `<videl-castro>` has already set `sourceBuffer` on its adaptation set children before this transition.
+2. On activation: the first `<videl-period>` child receives `slot=active`. `<videl-player>` has already set `sourceBuffer` on its adaptation set children before this transition.
 3. On `videl:done` from the active period (direct child only): the next sibling period is activated.
 4. When the last period completes: `videl:done` fires with `detail.src`.
 5. `update()` is forwarded to the active period on every tick.

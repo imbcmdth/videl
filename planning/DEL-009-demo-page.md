@@ -1,13 +1,13 @@
 # DEL-009: Demo Page
 
-**Depends on:** DEL-008 (`<videl-castro>` complete and working)  
+**Depends on:** DEL-008 (`<videl-player>` complete and working)  
 **Deliverable type:** Static web page + Vite build config
 
 ---
 
 ## Summary
 
-A standalone, publicly deployable demo page for `videl-castro`. Lets anyone drop in a DASH URL and watch it play, with a live event log showing what the player is doing internally. The page is a static build — no server required — suitable for deployment to GitHub Pages, Netlify, or any static host.
+A standalone, publicly deployable demo page for `videl-player`. Lets anyone drop in a DASH URL and watch it play, with a live event log showing what the player is doing internally. The page is a static build — no server required — suitable for deployment to GitHub Pages, Netlify, or any static host.
 
 ---
 
@@ -15,11 +15,11 @@ A standalone, publicly deployable demo page for `videl-castro`. Lets anyone drop
 
 ```
 ┌─────────────────────────────────────────────┐
-│  videl-castro demo                          │
+│  videl-player demo                          │
 ├──────────────────────────┬──────────────────┤
 │                          │  Event Log       │
 │   <media-controller>     │  ─────────────── │
-│     <videl-castro>       │  12:04:01.234    │
+│     <videl-player>       │  12:04:01.234    │
 │     media-chrome UI      │  videl:done      │
 │   </media-controller>    │  <videl-segment> │
 │                          │  ─────────────── │
@@ -53,11 +53,11 @@ The dropdown also shows user-saved URLs (see LocalStorage below), labelled by th
 
 ### Text input
 
-Free-text DASH URL. Pressing Enter or clicking **Load** sets `<videl-castro src="...">` and begins playback.
+Free-text DASH URL. Pressing Enter or clicking **Load** sets `<videl-player src="...">` and begins playback.
 
 ### LocalStorage persistence
 
-On **Load**: if `localStorage` is available, append the URL to a stored list (`videl-castro-demo:urls`). Cap at 10 entries (drop oldest). Previously saved URLs appear at the top of the dropdown under a "Recent" group, separated from the pre-configured group by an `<optgroup>` divider. On page load, if saved URLs exist, pre-populate the text input with the most recent one (do not auto-play).
+On **Load**: if `localStorage` is available, append the URL to a stored list (`videl-player-demo:urls`). Cap at 10 entries (drop oldest). Previously saved URLs appear at the top of the dropdown under a "Recent" group, separated from the pre-configured group by an `<optgroup>` divider. On page load, if saved URLs exist, pre-populate the text input with the most recent one (do not auto-play).
 
 If `localStorage` is not available (private browsing, storage blocked): degrade silently — no error, no UI indication required.
 
@@ -69,7 +69,7 @@ A scrollable panel listing all `videl:*` events fired by the player in real time
 
 ### What to capture
 
-Listen on the `<videl-castro>` element for the following events (all bubble):
+Listen on the `<videl-player>` element for the following events (all bubble):
 
 | Event | Fields to display |
 |-------|------------------|
@@ -79,7 +79,7 @@ Listen on the `<videl-castro>` element for the following events (all bubble):
 | `videl:mse:error` | `detail.contentType`, `detail.reason` |
 | `videl:mse:incompatible` | `detail.contentType`, `detail.requiredCodecs` |
 
-Also log player-level lifecycle events from the internal `<video>` (re-fired by `<videl-castro>`):
+Also log player-level lifecycle events from the internal `<video>` (re-fired by `<videl-player>`):
 
 | Event | Fields to display |
 |-------|------------------|
@@ -132,7 +132,7 @@ The project build tool is **esbuild** (see LEMMA.md). The demo is built as a sim
 
 ### No demo-specific framework
 
-The demo shell is plain TypeScript + vanilla DOM. No Lit, no React. The player itself is `<videl-castro>` wrapped in `<media-controller>` from `media-chrome`; the surrounding UI (event log, URL bar) is authored in plain TS.
+The demo shell is plain TypeScript + vanilla DOM. No Lit, no React. The player itself is `<videl-player>` wrapped in `<media-controller>` from `media-chrome`; the surrounding UI (event log, URL bar) is authored in plain TS.
 
 ### Deployment
 
@@ -140,7 +140,7 @@ Add a GitHub Actions workflow (`.github/workflows/demo.yml`) that:
 1. Runs `npm run build:demo` on push to `main`
 2. Deploys `demo/` (the `index.html` + `dist/` subdirectory) to the `gh-pages` branch via `actions/deploy-pages`
 
-Include a `README` note with the live URL template: `https://<org>.github.io/videl-castro/`.
+Include a `README` note with the live URL template: `https://<org>.github.io/videl-player/`.
 
 ---
 

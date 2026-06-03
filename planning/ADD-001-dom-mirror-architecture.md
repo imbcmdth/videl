@@ -1,4 +1,4 @@
-# ADD-001: videl-castro Architecture Design Document
+# ADD-001: videl-player Architecture Design Document
 
 **Status:** Draft  
 **Date:** 2026-06-01  
@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-`videl-castro` is a DASH video player built on a single architectural principle: **the DASH manifest is the DOM.** Parsing a manifest produces a live tree of custom elements that is directly inspectable and mutable via standard DOM APIs. Customization is achieved by substituting default element implementations, not by hooking into opaque internal event buses.
+`videl-player` is a DASH video player built on a single architectural principle: **the DASH manifest is the DOM.** Parsing a manifest produces a live tree of custom elements that is directly inspectable and mutable via standard DOM APIs. Customization is achieved by substituting default element implementations, not by hooking into opaque internal event buses.
 
 ---
 
@@ -81,7 +81,7 @@ The **parent** is responsible for setting and removing `slot` on its children. T
 
 | Element | Cardinality | Strategy | Notes |
 |---------|-------------|----------|-------|
-| `<videl-castro>` | pick-1 | sequential | Playlist of presentations; advances when current presentation ends |
+| `<videl-player>` | pick-1 | sequential | Playlist of presentations; advances when current presentation ends |
 | `<videl-presentation>` | pick-1 | sequential | Advances through periods in DOM order |
 | `<videl-period>` | pick-n | conditional | Selects one adaptation set per content type (video + audio + optional text) simultaneously |
 | `<videl-adaptation-set>` | pick-1 | conditional | ABR: selects representation based on bandwidth + quality |
@@ -118,14 +118,14 @@ When a parent element's own `slot` is removed, it **must synchronously deactivat
 
 Deactivation means: remove the `slot` attribute from every child that currently holds `slot=next` or `slot=active`. This triggers each child's own `attributeChangedCallback`, which cascades deactivation further down the tree.
 
-The result is a hard invariant: **at any point in time, there is exactly one active path from `<videl-castro>` to a leaf `<videl-segment>` (per content type).** No two branches of the tree can be simultaneously active.
+The result is a hard invariant: **at any point in time, there is exactly one active path from `<videl-player>` to a leaf `<videl-segment>` (per content type).** No two branches of the tree can be simultaneously active.
 
 Deactivation is synchronous to eliminate any window where multiple active paths could coexist.
 
 ### Composition Per Element
 
 ```
-videl-castro         = SequentialMixin(PickOneMixin(LitElement))
+videl-player         = SequentialMixin(PickOneMixin(LitElement))
 videl-presentation   = SequentialMixin(PickOneMixin(LitElement))
 videl-period         = PickNMixin(LitElement)          + custom contentType selection
 videl-adaptation-set = PickOneMixin(LitElement)        + custom ABR selection
@@ -139,10 +139,10 @@ videl-segment        = LitElement                      (leaf; no selection)
 
 ## 5. Element Hierarchy & Responsibilities
 
-### 5.1. `<videl-castro>` — Orchestrator
+### 5.1. `<videl-player>` — Orchestrator
 
 - Extends `CustomVideoElement` (from the `media-chrome` ecosystem) to expose a minimal `HTMLMediaElement`-compatible interface.
-- This makes `videl-castro` a drop-in media source for `media-chrome` controls with no custom UI layer required.
+- This makes `videl-player` a drop-in media source for `media-chrome` controls with no custom UI layer required.
 - Accepts `src` attribute (MPD URL).
 - On `src` change: fetches the manifest, parses it, constructs the DOM subtree.
 - Owns the `MediaSource` object; attaches it to the internal `<video>` element via `URL.createObjectURL`.
@@ -213,9 +213,9 @@ any → unslotted                                   — deactivation; abort in-f
 All elements extend `LitElement`. In production, non-UI elements return an empty template from `render()`. When a `debug` attribute is present, `render()` returns a visual representation of the element's data and slot state — making the full manifest tree inspectable in the browser's DOM without devtools.
 
 ```html
-<videl-castro src="..." debug>
+<videl-player src="..." debug>
   <!-- each child renders its own debug view -->
-</videl-castro>
+</videl-player>
 ```
 
 This is not a separate debug mode — it's a natural consequence of Lit's `render()` being conditional on the `debug` attribute.
@@ -224,11 +224,11 @@ This is not a separate debug mode — it's a natural consequence of Lit's `rende
 
 ## 7. UI: media-chrome Integration
 
-`videl-castro` ships **no UI layer**. Instead, it exposes the `HTMLMediaElement` interface via `CustomVideoElement` and is designed to be controlled by [`media-chrome`](https://github.com/muxinc/media-chrome).
+`videl-player` ships **no UI layer**. Instead, it exposes the `HTMLMediaElement` interface via `CustomVideoElement` and is designed to be controlled by [`media-chrome`](https://github.com/muxinc/media-chrome).
 
 ```html
 <media-controller>
-  <videl-castro slot="media" src="https://example.com/stream.mpd"></videl-castro>
+  <videl-player slot="media" src="https://example.com/stream.mpd"></videl-player>
   <media-control-bar>
     <media-play-button></media-play-button>
     <media-time-range></media-time-range>
@@ -247,7 +247,7 @@ Elements are driven by two complementary mechanisms:
 
 ### 8.1. Pump (time-driven, downward)
 
-`videl-castro` subscribes to the internal `<video>` element's `timeupdate` event and throttles it to a configurable interval (default: **250ms**). On each tick it calls `videlUpdate(state: PlayerState)` on its active `videl-presentation`. That element calls it on the active `videl-period`, which calls it on its active adaptation sets, and so on down the tree.
+`videl-player` subscribes to the internal `<video>` element's `timeupdate` event and throttles it to a configurable interval (default: **250ms**). On each tick it calls `videlUpdate(state: PlayerState)` on its active `videl-presentation`. That element calls it on the active `videl-period`, which calls it on its active adaptation sets, and so on down the tree.
 
 ```ts
 interface PlayerState {
@@ -261,7 +261,7 @@ interface PlayerState {
 
 **Only the active path is pumped.** `unslotted` children are never called. Pump cost is O(depth) — fixed at ~5 levels regardless of total element count.
 
-The throttle interval is configurable via a `tick-ms` attribute on `<videl-castro>` (default `250`).
+The throttle interval is configurable via a `tick-ms` attribute on `<videl-player>` (default `250`).
 
 ### 8.2. Events (completion-driven, upward)
 
@@ -302,7 +302,7 @@ The DOM is the source of truth for *what should be played and in what order*. MS
 ## 10. Orchestration: How Playback Flows
 
 ```
-videl-castro
+videl-player
   1. Fetch MPD
   2. Parse → build DOM subtree under <videl-presentation>
   3. Create MediaSource, attach to internal <video>

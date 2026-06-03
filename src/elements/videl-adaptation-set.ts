@@ -11,7 +11,7 @@ import type { ManagedSourceBuffer } from '../managed-source-buffer';
  *  - ABR: on each `update()` tick, select the highest-bandwidth representation
  *    whose bitrate ≤ `bandwidth × abrSafetyFactor / playbackRate`.
  *  - SourceBuffer distribution: forward the `ManagedSourceBuffer` received from
- *    `<videl-castro>` to all child representations before activation.
+ *    `<videl-player>` to all child representations before activation.
  *  - Codec change: if an ABR switch requires a different codec, attempt
  *    `sourceBuffer.changeType()`; fire `videl:mse:incompatible` if that fails.
  *  - Error escalation: on `videl:segment:error` from a child, abort the
@@ -41,7 +41,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #sourceBuffer: ManagedSourceBuffer | null = null;
 
-  /** Set by `<videl-castro>` before this element is activated. */
+  /** Set by `<videl-player>` before this element is activated. */
   get sourceBuffer(): ManagedSourceBuffer | null {
     return this.#sourceBuffer;
   }
@@ -71,7 +71,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     if (name !== 'slot') return;
 
-    if (value === 'active') {
+    // Accept both direct activation ('active') and PickNMixin keyed activation
+    // ('video-active', 'audio-active', etc.) — VidelPeriod uses PickNMixin
+    // which stamps 'contentType-active' rather than plain 'active'.
+    const isActive = value !== null && (value === 'active' || value.endsWith('-active'));
+
+    if (isActive) {
       if (!this.#sourceBuffer) {
         this.dispatchEvent(
           new CustomEvent('videl:mse:error', {
@@ -84,7 +89,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       }
       // Distribute SourceBuffer to every child representation before any is
       // activated (criterion 2 — done here so it is set even before the
-      // first update() call).
+      // first videlUpdate() call).
       for (const rep of this.#childRepresentations) {
         (rep as any).sourceBuffer = this.#sourceBuffer;
       }
@@ -107,7 +112,9 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    */
   /** Named `videlUpdate` to avoid colliding with LitElement's `update()` lifecycle. */
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('slot') !== 'active') return;
+    // Accept 'active' (direct) and 'video-active' / 'audio-active' (via PickNMixin).
+    const slot = this.getAttribute('slot');
+    if (!slot || !(slot === 'active' || slot.endsWith('-active'))) return;
 
     const target  = this.#selectRepresentation(state.bandwidth, state.playbackRate);
     if (!target) return;

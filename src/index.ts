@@ -7,4 +7,5 @@ export { VidelRepresentation } from './elements/videl-representation';
 export { VidelAdaptationSet } from './elements/videl-adaptation-set';
 export { VidelPeriod } from './elements/videl-period';
 export { VidelPresentation } from './elements/videl-presentation';
+export { VidelPlayer } from './elements/videl-player';
 export { parseMpd, ParseError, parseDuration } from './parser/mpd-parser';

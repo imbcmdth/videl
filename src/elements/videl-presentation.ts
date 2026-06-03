@@ -8,7 +8,7 @@ import type { PlayerState } from '../player-state';
  *
  * Holds top-level manifest attributes and advances sequentially through its
  * `<videl-period>` children via `SequentialMixin`. When all periods have
- * completed it fires `videl:done` with `{ src }` so `<videl-castro>` can
+ * completed it fires `videl:done` with `{ src }` so `<videl-player>` can
  * advance to the next presentation in a playlist.
  *
  * Mixin stack: `SequentialMixin(PickOneMixin(LitElement))`.
@@ -154,7 +154,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * Fired on every `videl:done` that bubbles to this element.
    * Filters to direct `<videl-period>` children. If the completing period is
    * the last one (no next DOM sibling), fires the presentation's own
-   * `videl:done` with `{ src }` so `<videl-castro>` advances the playlist.
+   * `videl:done` with `{ src }` so `<videl-player>` advances the playlist.
    *
    * Note: SequentialMixin already handles *advancement* to the next period.
    * This listener handles the *termination* case where no next period exists.

@@ -8,7 +8,7 @@
 
 ## Summary
 
-A standalone module that takes a DASH MPD XML string and a base URL, and produces a fully-populated `<videl-presentation>` DOM subtree ready to be inserted into `<videl-castro>`. All DASH attribute inheritance is resolved at parse time; every `<videl-segment>` receives stamped, absolute URLs and byte ranges. The parser never modifies the DOM after initial construction.
+A standalone module that takes a DASH MPD XML string and a base URL, and produces a fully-populated `<videl-presentation>` DOM subtree ready to be inserted into `<videl-player>`. All DASH attribute inheritance is resolved at parse time; every `<videl-segment>` receives stamped, absolute URLs and byte ranges. The parser never modifies the DOM after initial construction.
 
 ---
 

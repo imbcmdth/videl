@@ -1,7 +1,8 @@
-# DEL-008: `<videl-castro>`
+# DEL-008: `<videl-player>`
 
 **Depends on:** DEL-000–DEL-007 (all prior deliverables)  
-**Deliverable type:** Custom element + integration tests
+**Deliverable type:** Custom element + integration tests  
+**Status:** Implemented
 
 ---
 
@@ -43,7 +44,7 @@ Events re-fired from internal `<video>`: `play`, `pause`, `timeupdate`, `seeking
 
 ### `videlUpdate(state: PlayerState)` — internal only
 
-`videl-castro` is the *source* of the pump; it does not receive `update()` from a parent.
+`videl-player` is the *source* of the pump; it does not receive `update()` from a parent.
 
 ---
 
@@ -98,7 +99,7 @@ Events re-fired from internal `<video>`: `play`, `pause`, `timeupdate`, `seeking
 13. On `videl:mse:error`: MSE rebuild executes; playback resumes from the saved `currentTime` without the caller needing to intervene.
 14. On MSE rebuild: `<videl-adaptation-set>` elements receive fresh `sourceBuffer` properties and resume appending without error.
 15. On content type set change between presentations (e.g. video+audio → audio-only): MSE is rebuilt with only the required SourceBuffers; no stale SourceBuffers remain.
-16. `addSourceBuffer` is called by `<videl-castro>` only — never by any child element.
+16. `addSourceBuffer` is called by `<videl-player>` only — never by any child element.
 
 ---
 

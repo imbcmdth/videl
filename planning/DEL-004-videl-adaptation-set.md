@@ -8,7 +8,7 @@
 
 ## Summary
 
-Owns a set of `<videl-representation>` children for a single content type (video, audio, or text). Implements ABR: on each pump tick, selects the representation best matching current bandwidth. Receives a `ManagedSourceBuffer` from `<videl-castro>` and distributes it to child representations.
+Owns a set of `<videl-representation>` children for a single content type (video, audio, or text). Implements ABR: on each pump tick, selects the representation best matching current bandwidth. Receives a `ManagedSourceBuffer` from `<videl-player>` and distributes it to child representations.
 
 ---
 
@@ -28,7 +28,7 @@ Owns a set of `<videl-representation>` children for a single content type (video
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `sourceBuffer` | `SourceBuffer` | Set by `<videl-castro>` before element is activated. Castro is the sole caller of `addSourceBuffer`; this element holds a reference and appends to it. |
+| `sourceBuffer` | `SourceBuffer` | Set by `<videl-player>` before element is activated. Castro is the sole caller of `addSourceBuffer`; this element holds a reference and appends to it. |
 
 ### `videlUpdate(state: PlayerState)`
 
@@ -66,14 +66,14 @@ Behavior on each `update()` call:
 | Transition | Behavior |
 |------------|----------|
 | `unslotted → next` | No prefetch work needed at this level. |
-| `unslotted → active` | `sourceBuffer` property must already be set by `<videl-castro>` before this transition. Set `sourceBuffer` on all child representations. Run initial ABR to activate the best representation. |
+| `unslotted → active` | `sourceBuffer` property must already be set by `<videl-player>` before this transition. Set `sourceBuffer` on all child representations. Run initial ABR to activate the best representation. |
 | `any → unslotted` | Deactivate all child representations (cascade). Do **not** call `removeSourceBuffer` — MSE does not support that reliably mid-stream. |
 
 ---
 
 ## Functional Acceptance Criteria
 
-1. On activation: `sourceBuffer` property is already set by `<videl-castro>` — no `addSourceBuffer` call here.
+1. On activation: `sourceBuffer` property is already set by `<videl-player>` — no `addSourceBuffer` call here.
 2. `sourceBuffer` is forwarded as a property to all child `<videl-representation>` elements before any is activated.
 3. On each `update()`: the representation with the highest bandwidth not exceeding `bandwidth × 0.8` is selected.
 4. If the ABR selection changes: `videl:representation:switched` fires with correct `from`/`to`/`contentType`.
