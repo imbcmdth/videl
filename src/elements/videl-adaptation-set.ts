@@ -105,7 +105,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * 2. If the selection changed, attempt the switch (codec check, changeType).
    * 3. Forward the full PlayerState to the active representation.
    */
-  update(state: PlayerState): void {
+  /** Named `videlUpdate` to avoid colliding with LitElement's `update()` lifecycle. */
+  videlUpdate(state: PlayerState): void {
     if (this.getAttribute('slot') !== 'active') return;
 
     const target  = this.#selectRepresentation(state.bandwidth, state.playbackRate);
@@ -229,7 +230,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #forwardUpdate(state: PlayerState): void {
     const active = this.#activeRepresentation;
-    if (active) (active as any).update(state);
+    if (active) (active as any).videlUpdate(state);
   }
 
   /**

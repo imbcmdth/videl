@@ -27,14 +27,14 @@ The MPD root element. Holds top-level manifest attributes and advances sequentia
 
 None. `<videl-castro>` sets `sourceBuffer` directly on `<videl-adaptation-set>` elements (see ADR-0001). `<videl-presentation>` does not handle `MediaSource` or `SourceBuffer` distribution.
 
-### `update(state: PlayerState)`
+### `videlUpdate(state: PlayerState)`
 
 Called by parent on each pump tick **only when `slot=active`**.
 
 Fields used: all — forwarded in full to the active `<videl-period>`.
 
 Behavior on each `update()` call:
-1. Forward `update(state)` to the active `<videl-period>`.
+1. Forward `videlUpdate(state)` to the active `<videl-period>`.
 2. `SequentialMixin` listens for `videl:done` from direct `<videl-period>` children and advances to the next period automatically.
 3. If no periods remain: fire `videl:done` (with `detail.src` to identify the presentation).
 

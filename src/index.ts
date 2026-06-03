@@ -5,3 +5,4 @@ export { PickOneMixin, PickNMixin, SequentialMixin } from './mixins';
 export { VidelSegment } from './elements/videl-segment';
 export { VidelRepresentation } from './elements/videl-representation';
 export { VidelAdaptationSet } from './elements/videl-adaptation-set';
+export { VidelPeriod } from './elements/videl-period';

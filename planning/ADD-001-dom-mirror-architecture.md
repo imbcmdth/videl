@@ -247,7 +247,7 @@ Elements are driven by two complementary mechanisms:
 
 ### 8.1. Pump (time-driven, downward)
 
-`videl-castro` subscribes to the internal `<video>` element's `timeupdate` event and throttles it to a configurable interval (default: **250ms**). On each tick it calls `update(state: PlayerState)` on its active `videl-presentation`. That element calls it on the active `videl-period`, which calls it on its active adaptation sets, and so on down the tree.
+`videl-castro` subscribes to the internal `<video>` element's `timeupdate` event and throttles it to a configurable interval (default: **250ms**). On each tick it calls `videlUpdate(state: PlayerState)` on its active `videl-presentation`. That element calls it on the active `videl-period`, which calls it on its active adaptation sets, and so on down the tree.
 
 ```ts
 interface PlayerState {
@@ -280,7 +280,7 @@ Parents listen for these events on themselves (bubbled from children) and react 
 
 | Concern | Mechanism | Direction |
 |---------|-----------|----------|
-| Time-driven decisions (buffer health, ABR, seek) | `update(PlayerState)` pump | Downward, active path only |
+| Time-driven decisions (buffer health, ABR, seek) | `videlUpdate(PlayerState)` pump | Downward, active path only |
 | Completion / error signals | CustomEvents | Upward, bubble |
 
 ---

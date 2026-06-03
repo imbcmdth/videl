@@ -30,7 +30,7 @@ Owns a set of `<videl-representation>` children for a single content type (video
 |----------|------|-------------|
 | `sourceBuffer` | `SourceBuffer` | Set by `<videl-castro>` before element is activated. Castro is the sole caller of `addSourceBuffer`; this element holds a reference and appends to it. |
 
-### `update(state: PlayerState)`
+### `videlUpdate(state: PlayerState)`
 
 Called by parent on each pump tick **only when `slot=active`**.
 
@@ -47,7 +47,7 @@ Behavior on each `update()` call:
 2. If the selected representation differs from the currently active one:
    a. Check codec compatibility: call `MediaSource.isTypeSupported(newMimeType + '; codecs="' + newCodecs + '"')`. If supported and the MIME type matches the existing SourceBuffer type, deactivate current and activate the new one.
    b. If the codec requires a type change: call `sourceBuffer.changeType(newMimeAndCodecs)` (this is synchronous; it throws if the type is not supported or the browser lacks support). If it succeeds, proceed with the switch. If it throws, fire `videl:mse:incompatible` upward with `{ contentType, requiredCodecs }` and abort the switch until castro rebuilds.
-3. Forward `update(state)` to the currently active `<videl-representation>`.
+3. Forward `videlUpdate(state)` to the currently active `<videl-representation>`.
 
 ### Events fired
 

@@ -150,21 +150,21 @@ test('criterion 3 — ABR selects highest representation not exceeding bandwidth
     // bandwidth=600k → target=480k → highest ≤ 480k → rep-500 is NOT ≤ 480k
     // wait: 500k * 0.8 = 400k < 500k, so nothing is eligible → fallback to rep-500 (lowest)
     // Let's verify: 600k * 0.8 = 480k. rep-500 bw=500k > 480k. So all exceed → fallback.
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
     const atLow = ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
 
     // bandwidth=2M → target=1.6M → rep-500(500k ≤ 1.6M ✓), rep-1500(1.5M ≤ 1.6M ✓), rep-4000(4M > 1.6M ✗)
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
     const atMid = ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
 
     // bandwidth=6M → target=4.8M → all three eligible → highest = rep-4000
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 6_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
@@ -208,7 +208,7 @@ test('criterion 7 — abrSafetyFactor is configurable', async ({ page }) => {
     await new Promise<void>(r => setTimeout(r, 50));
 
     // With factor=1.0 and bandwidth=500k: target=500k, rep-500(500k ≤ 500k) → eligible.
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 500_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
@@ -255,13 +255,13 @@ test('criterion 4 — ABR switch fires videl:representation:switched', async ({ 
     });
 
     // First update — activates rep-500 (no "switched" event, first activation).
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
     // Second update at higher bandwidth — should switch to rep-1500.
-    ads.update({
+    ads.videlUpdate({
       bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
@@ -305,12 +305,12 @@ test('criterion 5 — previous representation is deactivated when ABR switches',
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Activate rep-500.
-    ads.update({ bandwidth: 600_000, currentTime: 0, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
     const beforeSwitch = reps.map((r: any) => r.getAttribute('slot'));
 
     // Switch to rep-1500.
-    ads.update({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
     const afterSwitch = reps.map((r: any) => r.getAttribute('slot'));
 
@@ -348,15 +348,15 @@ test('criterion 6 — update() is forwarded to the active representation', async
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Activate the representation.
-    ads.update({ bandwidth: 5_000_000, currentTime: 0, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 5_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
     // Monkey-patch update() on the now-active representation.
     let capturedCurrentTime: number | null = null;
-    const orig = rep.update.bind(rep);
-    rep.update = (s: any) => { capturedCurrentTime = s.currentTime; orig(s); };
+    const orig = rep.videlUpdate.bind(rep);
+    rep.videlUpdate = (s: any) => { capturedCurrentTime = s.currentTime; orig(s); };
 
-    ads.update({ bandwidth: 5_000_000, currentTime: 42, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 5_000_000, currentTime: 42, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
     return { capturedCurrentTime };
@@ -392,7 +392,7 @@ test('criterion 8 — deactivation cascades to all child representations', async
     ads.setAttribute('slot', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
-    ads.update({ bandwidth: 5_000_000, currentTime: 0, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 5_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
     const before = reps.map((r: any) => r.getAttribute('slot'));
@@ -470,7 +470,7 @@ test('criterion 3 (safety factor) — rep at exactly bandwidth × 0.8 is eligibl
     ads.setAttribute('slot', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
-    ads.update({ bandwidth: 1_000_000, currentTime: 0, playbackRate: 1,
+    ads.videlUpdate({ bandwidth: 1_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
     return ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
@@ -508,7 +508,7 @@ test('criterion 3 (playbackRate) — bandwidth target is divided by playbackRate
     ads.setAttribute('slot', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
-    ads.update({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 2,
+    ads.videlUpdate({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 2,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
     return ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');

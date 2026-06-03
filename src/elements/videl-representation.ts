@@ -121,8 +121,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
    * Called by the parent adaptation-set on each pump tick when `slot=active`.
    * Selects the correct segment to fetch/append based on currentTime and
    * buffer state. Already-buffered segments are skipped (not re-fetched).
+   *
+   * Named `videlUpdate` (not `update`) to avoid colliding with LitElement's
+   * internal `update(changedProperties)` lifecycle method.
    */
-  update(state: PlayerState): void {
+  videlUpdate(state: PlayerState): void {
     if (!this.#initAppended) return;
     if (this.getAttribute('slot') !== 'active') return;
 

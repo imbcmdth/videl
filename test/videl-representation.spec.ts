@@ -84,7 +84,7 @@ async function runUpdateTest(
       rep.setAttribute('slot', 'active');
       await new Promise<void>(r => setTimeout(r, 400));
 
-      rep.update({
+      rep.videlUpdate({
         currentTime,
         bandwidth: 1e6,
         playbackRate: 1,
@@ -181,7 +181,7 @@ test('criterion 5 — sourceBuffer is forwarded to segment before it is slotted'
     // sourceBuffer not yet set on seg (slot is still unset).
     const sbBeforeUpdate = seg.sourceBuffer;
 
-    rep.update({
+    rep.videlUpdate({
       currentTime: 0,
       bandwidth: 1e6,
       playbackRate: 1,
@@ -288,7 +288,7 @@ test('criterion 7 — deactivation cascades synchronously to all child segments'
     rep.setAttribute('slot', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
-    rep.update({
+    rep.videlUpdate({
       currentTime: 0, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
@@ -335,7 +335,7 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
     rep.setAttribute('slot', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
-    rep.update({
+    rep.videlUpdate({
       currentTime: 0, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });

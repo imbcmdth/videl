@@ -41,7 +41,7 @@ Events re-fired from internal `<video>`: `play`, `pause`, `timeupdate`, `seeking
 
 ### Properties (none — this is the root)
 
-### `update(state: PlayerState)` — internal only
+### `videlUpdate(state: PlayerState)` — internal only
 
 `videl-castro` is the *source* of the pump; it does not receive `update()` from a parent.
 
@@ -67,13 +67,13 @@ Events re-fired from internal `<video>`: `play`, `pause`, `timeupdate`, `seeking
    9. Set `video.currentTime` to the saved position.
    10. Reactivate the presentation from the current position.
 
-5. **Pump:** use a `setTimeout`-based loop (not `requestAnimationFrame` — RAF pauses in background tabs, which breaks live streams; `timeupdate` alone fires at most every 250ms and is not reliable for throttle control). On each tick: build `PlayerState` from `video.currentTime`, `video.buffered`, `video.playbackRate`, and the running bandwidth estimate; call `update(state)` on the active `<videl-presentation>`; schedule the next tick at `tick-ms`. On seek (`seeking` event): cancel the pending tick, call `update(state)` immediately, then reschedule.
+5. **Pump:** use a `setTimeout`-based loop (not `requestAnimationFrame` — RAF pauses in background tabs, which breaks live streams; `timeupdate` alone fires at most every 250ms and is not reliable for throttle control). On each tick: build `PlayerState` from `video.currentTime`, `video.buffered`, `video.playbackRate`, and the running bandwidth estimate; call `videlUpdate(state)` on the active `<videl-presentation>`; schedule the next tick at `tick-ms`. On seek (`seeking` event): cancel the pending tick, call `videlUpdate(state)` immediately, then reschedule.
 
 6. **Bandwidth estimation:** maintain a rolling bandwidth estimate (bytes received / time elapsed) from `videl:done` events where `event.target` is a `<videl-segment>`. Include in each `PlayerState`.
 
-7. **Seek handling:** on `currentTime` set, immediately call `update(state)` (don't wait for next tick) so `<videl-representation>` resolves the correct segment without delay.
+7. **Seek handling:** on `currentTime` set, immediately call `videlUpdate(state)` (don't wait for next tick) so `<videl-representation>` resolves the correct segment without delay.
 
-8. **MutationObserver:** watch for developer insertions/removals of `<videl-period>` elements (ad insertion, splice). On relevant mutation, call `update(state)` to re-evaluate the active path.
+8. **MutationObserver:** watch for developer insertions/removals of `<videl-period>` elements (ad insertion, splice). On relevant mutation, call `videlUpdate(state)` to re-evaluate the active path.
 
 9. **SourceBuffer serialization:** listen for `videl:done` events where `event.target` is a `<videl-segment>`; if multiple SourceBuffers have pending appends, serialize them (MSE does not allow concurrent `appendBuffer` on the same SourceBuffer).
 

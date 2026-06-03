@@ -30,7 +30,7 @@ The execution leaf of the tree. An abstraction over fetching: given a URL and op
 |----------|------|-------------|
 | `sourceBuffer` | `ManagedSourceBuffer` | Set by parent before element is slotted. Required for `slot=active`. A `ManagedSourceBuffer` wrapping the raw `SourceBuffer`; see DEL-000. |
 
-### `update(state: PlayerState)`
+### `videlUpdate(state: PlayerState)`
 
 Not called on `<videl-segment>`. It is the leaf — it receives no pump calls.
 

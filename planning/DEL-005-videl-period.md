@@ -1,7 +1,8 @@
 # DEL-005: `<videl-period>`
 
 **Depends on:** DEL-001 (mixins), DEL-004 (`<videl-adaptation-set>`)  
-**Deliverable type:** Custom element + Playwright tests
+**Deliverable type:** Custom element + Playwright tests  
+**Status:** Implemented
 
 ---
 
@@ -26,14 +27,14 @@ Owns a set of `<videl-adaptation-set>` children. Uses `PickNMixin` to activate o
 
 None. `<videl-castro>` sets `sourceBuffer` directly on each `<videl-adaptation-set>` child (see ADR-0001). `<videl-period>` does not handle `MediaSource` or `SourceBuffer` distribution.
 
-### `update(state: PlayerState)`
+### `videlUpdate(state: PlayerState)`
 
 Called by parent on each pump tick **only when `slot=active`**.
 
 Fields used: all — forwarded in full to each active `<videl-adaptation-set>`.
 
 Behavior on each `update()` call:
-1. Forward `update(state)` to all currently active `<videl-adaptation-set>` children.
+1. Forward `videlUpdate(state)` to all currently active `<videl-adaptation-set>` children.
 2. Check if `state.currentTime >= start + duration` (if `duration` is set). If so, fire `videl:done` to signal the period has ended.
 
 ### Events fired
@@ -86,7 +87,7 @@ Key test scenarios:
 - Multi-activate: verify video + audio children both reach `slot=active`.
 - Single content type: verify only one child per content type is active (second video child stays `unslotted`).
 - Slot activation order: verify `slot=active` is not set on any adaptation set before its `sourceBuffer` property is present (stub castro sets it upfront in tests).
-- `update()` fan-out: call `update()`; verify all active children's `update()` was called.
-- Period end: call `update({ currentTime: start + duration + 0.1 })`; verify `videl:done` fires with correct `detail.periodId`.
+- `update()` fan-out: call `videlUpdate()`; verify all active children's `update()` was called.
+- Period end: call `videlUpdate({ currentTime: start + duration + 0.1 })`; verify `videl:done` fires with correct `detail.periodId`.
 - No duration: verify `videl:done` (period-initiated) never fires regardless of `currentTime`.
 - Deactivation cascade: remove `slot`; verify all active children return to `unslotted`.

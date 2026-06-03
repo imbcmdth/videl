@@ -34,7 +34,7 @@ Owns a set of `<videl-segment>` children for a single quality level. On each pum
 |----------|------|-------------|
 | `sourceBuffer` | `ManagedSourceBuffer` | Passed down from `<videl-adaptation-set>`. Forwarded to active `<videl-segment>` children. |
 
-### `update(state: PlayerState)`
+### `videlUpdate(state: PlayerState)`
 
 Called by parent on each pump tick **only when `slot=active`**.
 
@@ -90,11 +90,11 @@ Behavior on each `update()` call:
 
 **Framework:** Playwright component tests (real browser).
 
-Setup: mount `<videl-representation>` with 3–5 manually constructed `<videl-segment>` children (use mock `sourceBuffer` with a stub `appendBuffer`). Call `update()` directly to drive behavior.
+Setup: mount `<videl-representation>` with 3–5 manually constructed `<videl-segment>` children (use mock `sourceBuffer` with a stub `appendBuffer`). call `videlUpdate()` directly to drive behavior.
 
 Key test scenarios:
-- Sequential pump: call `update({ currentTime: 0, ... })`; verify segment 0 is `active`, segment 1 is `next`.
-- Seek: call `update({ currentTime: 30, ... })`; verify segment covering t=30 is activated regardless of prior state.
+- Sequential pump: call `videlUpdate({ currentTime: 0, ... })`; verify segment 0 is `active`, segment 1 is `next`.
+- Seek: call `videlUpdate({ currentTime: 30, ... })`; verify segment covering t=30 is activated regardless of prior state.
 - Already-buffered skip: set `buffered` to include segment 1's range; verify segment 1 is skipped and segment 2 gets `slot=next`.
 - Init segment fetch: verify `slot=next` triggers init segment request before any segment fetch.
 - Deactivation cascade: remove `slot` from `<videl-representation>`; verify all child segments return to `unslotted`.
