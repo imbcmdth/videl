@@ -1,7 +1,8 @@
 # DEL-000: Foundation — Shared Types and ManagedSourceBuffer
 
 **Depends on:** nothing  
-**Deliverable type:** TypeScript module + unit tests
+**Deliverable type:** TypeScript module + unit tests  
+**Status:** Implemented
 
 ---
 

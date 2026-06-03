@@ -1,7 +1,8 @@
 # DEL-002: `<videl-segment>`
 
 **Depends on:** DEL-000 (ManagedSourceBuffer, PlayerState), DEL-001 (mixins — for deactivation cascade contract)  
-**Deliverable type:** Custom element + Playwright tests
+**Deliverable type:** Custom element + Playwright tests  
+**Status:** Implemented
 
 ---
 

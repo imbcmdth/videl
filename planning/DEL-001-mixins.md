@@ -1,7 +1,8 @@
 # DEL-001: Selection Mixins
 
 **Depends on:** nothing  
-**Deliverable type:** TypeScript library code + unit tests
+**Deliverable type:** TypeScript library code + unit tests  
+**Status:** Implemented
 
 ---
 
