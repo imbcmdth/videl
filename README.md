@@ -1,7 +1,6 @@
-<style>h1,h2,h3,h4 { border-bottom: 0; } </style>
-<img src="videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="left"/>
+# Videl
 
-### Videl
+<img src="videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="right"/>
 
 #### _AKA: Comrade Video Element_
 
