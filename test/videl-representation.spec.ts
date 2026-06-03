@@ -45,12 +45,12 @@ async function runUpdateTest(
   page: any,
   opts: {
     segTimes: number[];      // [startTime, ...] — duration always 5 s
-    bufferedRanges?: [number, number][];
+    bufferedRanges?: [number, number][];  // defaults to [] in the evaluate
     currentTime: number;
   }
 ): Promise<(string | null)[]> {
   return page.evaluate(
-    async ({ segTimes, bufferedRanges, currentTime }: typeof opts) => {
+    async ({ segTimes, bufferedRanges = [], currentTime }: typeof opts) => {
       const { VidelRepresentation } = await import('/dist/index.js');
 
       const mockMSB = {

@@ -95,9 +95,10 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childPeriods(): Element[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-period'
-    );
+    // Cast needed: SequentialMixin(…as any) loses HTMLElement context for `this`.
+    return Array.from((this as unknown as HTMLElement).children).filter(
+      (el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period'
+    ) as Element[];
   }
 
   #activateFirstPeriod(): void {
@@ -161,8 +162,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    */
   #onPeriodDone = (event: Event): void => {
     const target = event.target as Element;
+    // Cast needed: SequentialMixin(…as any) means TypeScript doesn't know
+    // `this` is an HTMLElement, so the comparison would otherwise be flagged
+    // as having no overlap with HTMLElement | null.
+    const self = this as unknown as HTMLElement;
     // Only act on direct <videl-period> children.
-    if (target.parentElement !== this) return;
+    if (target.parentElement !== self) return;
     if (target.tagName.toLowerCase() !== 'videl-period') return;
 
     // If there is a next sibling, SequentialMixin has already activated it —
@@ -170,11 +175,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     if (target.nextElementSibling !== null) return;
 
     // Last period completed — signal presentation done.
-    this.dispatchEvent(
+    self.dispatchEvent(
       new CustomEvent('videl:done', {
         bubbles:  true,
         composed: true,
-        detail:   { src: this.src },
+        detail:   { src: (this as any).src },
       })
     );
   };
@@ -190,7 +195,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       </style>
       <strong>videl-presentation</strong>
       type=<em>${this.presentationType}</em>
-      slot=<em>${this.slot ?? 'unslotted'}</em>
+      slot=<em>${this.slot || 'unslotted'}</em>
       dur=<em>${this.mediaPresentationDuration ?? '?'}</em>s
       <slot name="active"></slot>
       <slot name="next"></slot>
@@ -198,4 +203,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   }
 }
 
-customElements.define('videl-presentation', VidelPresentation);
+// Cast needed: the as-any mixin chain makes VidelPresentation's constructor
+// signature opaque to the CustomElementConstructor constraint.
+customElements.define('videl-presentation', VidelPresentation as unknown as CustomElementConstructor);

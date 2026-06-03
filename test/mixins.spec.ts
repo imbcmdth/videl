@@ -400,7 +400,7 @@ test.describe('SequentialMixin', () => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin, SequentialMixin } = await import('/dist/index.js');
       class El extends SequentialMixin(PickOneMixin(HTMLElement) as any) {}
-      customElements.define('test-seq-c6', El);
+      customElements.define('test-seq-c6', El as unknown as CustomElementConstructor);
 
       const host = document.createElement('test-seq-c6') as any;
       document.body.appendChild(host);
@@ -435,7 +435,7 @@ test.describe('SequentialMixin', () => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin, SequentialMixin } = await import('/dist/index.js');
       class El extends SequentialMixin(PickOneMixin(HTMLElement) as any) {}
-      customElements.define('test-seq-c7', El);
+      customElements.define('test-seq-c7', El as unknown as CustomElementConstructor);
 
       const host = document.createElement('test-seq-c7') as any;
       document.body.appendChild(host);
@@ -462,7 +462,7 @@ test.describe('SequentialMixin', () => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin, SequentialMixin } = await import('/dist/index.js');
       class El extends SequentialMixin(PickOneMixin(HTMLElement) as any) {}
-      customElements.define('test-seq-c8', El);
+      customElements.define('test-seq-c8', El as unknown as CustomElementConstructor);
 
       const host = document.createElement('test-seq-c8') as any;
       document.body.appendChild(host);
@@ -531,7 +531,7 @@ test.describe('SequentialMixin', () => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin, SequentialMixin } = await import('/dist/index.js');
       class El extends SequentialMixin(PickOneMixin(HTMLElement) as any) {}
-      customElements.define('test-seq-desc', El);
+      customElements.define('test-seq-desc', El as unknown as CustomElementConstructor);
 
       const host = document.createElement('test-seq-desc') as any;
       document.body.appendChild(host);

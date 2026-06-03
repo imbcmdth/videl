@@ -39,7 +39,7 @@ export class VidelSegment extends LitElement {
   byteRange: string | null = null;
   startTime = 0;
   duration  = 0;
-  slot: string | undefined = undefined;
+  slot = '';
   debug     = false;
 
   /** Set by the parent adaptation-set before the element is activated. */
@@ -228,7 +228,7 @@ export class VidelSegment extends LitElement {
                 border: 1px solid #aaa; padding: 4px; margin: 2px; }
       </style>
       <strong>videl-segment</strong>
-      slot=<em>${this.slot ?? 'unslotted'}</em>
+      slot=<em>${this.slot || 'unslotted'}</em>
       url=<em>${this.url}</em>
       t=<em>${this.startTime}</em>+<em>${this.duration}</em>s
     `;

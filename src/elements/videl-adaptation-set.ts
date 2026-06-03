@@ -33,7 +33,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   mimeType        = '';
   codecs          = '';
   lang            = '';
-  slot: string | undefined = undefined;
+  slot = '';
   /** Highest-bandwidth representation chosen ≤ `bandwidth × factor / playbackRate`. */
   abrSafetyFactor = 0.8;
   debug           = false;
@@ -289,7 +289,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       </style>
       <strong>videl-adaptation-set</strong>
       type=<em>${this.contentType}</em>
-      slot=<em>${this.slot ?? 'unslotted'}</em>
+      slot=<em>${this.slot || 'unslotted'}</em>
       abr=<em>${this.abrSafetyFactor}</em>
       <slot name="active"></slot>
       <slot name="next"></slot>

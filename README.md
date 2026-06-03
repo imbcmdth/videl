@@ -1,9 +1,10 @@
-<img src="videl-logo.png" alt="Meet Videl" height="396" style="margin-right:12px" />
+<img src="videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="left"/>
 
 # Videl
-## _Your new favorite video element!_
 
-A modern, browser-native DASH adaptive streaming player built entirely from Web Components.
+## _AKA: Comrade Video Element_
+
+A modern, browser-native DASH adaptive streaming player built **entirely** from Web Components.
 
 ---
 

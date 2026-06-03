@@ -217,7 +217,7 @@ test('criterion 7 — bandwidth estimate updates after a segment completes', asy
 
   // The bandwidth estimate should be a positive number (updated from declaration).
   expect(result.capturedBandwidth).not.toBeNull();
-  expect(result.capturedBandwidth as number).toBeGreaterThan(0);
+  expect(result.capturedBandwidth as unknown as number).toBeGreaterThan(0);
 });
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   start    = 0;
   /** Absent (null) = open-ended period — `videl:done` will never fire. */
   duration: number | null = null;
-  slot: string | undefined = undefined;
+  slot = '';
   debug    = false;
 
   #doneEmitted = false;
@@ -168,7 +168,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       </style>
       <strong>videl-period</strong>
       id=<em>${this.periodId}</em>
-      slot=<em>${this.slot ?? 'unslotted'}</em>
+      slot=<em>${this.slot || 'unslotted'}</em>
       t=<em>${this.start}</em>+<em>${this.duration ?? '∞'}</em>s
     `;
   }

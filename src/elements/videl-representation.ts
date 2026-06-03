@@ -95,7 +95,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   mimeType                = '';
   initializationUrl       = '';
   initializationByteRange: string | null = null;
-  slot: string | undefined = undefined;
+  slot = '';
   debug                   = false;
 
   // ── sourceBuffer — resets init state when a new buffer is assigned ────────
@@ -313,7 +313,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       <strong>videl-representation</strong>
       id=<em>${this.repId}</em>
       bw=<em>${this.bandwidth}</em>
-      slot=<em>${this.slot ?? 'unslotted'}</em>
+      slot=<em>${this.slot || 'unslotted'}</em>
       init=<em>${this.#initAppended ? 'done' : 'pending'}</em>
       <slot name="active"></slot>
       <slot name="next"></slot>
