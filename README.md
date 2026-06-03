@@ -1,14 +1,15 @@
+<style>h1,h2,h3,h4 { border-bottom: 0; } </style>
 <img src="videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="left"/>
 
-# Videl
+### Videl
 
-## _AKA: Comrade Video Element_
+#### _AKA: Comrade Video Element_
 
 A modern, browser-native DASH adaptive streaming player built **entirely** from Web Components.
 
 ---
 
-## Goals
+#### Goals
 
 - **DOM as data model.** The manifest is represented directly as a live HTML element tree (`<videl-presentation>` → `<videl-period>` → `<videl-adaptation-set>` → `<videl-representation>` → `<videl-segment>`). The browser's own DOM is the state machine.
 - **No framework lock-in for consumers.** `<videl-player>` is a standard custom element that works inside any framework — or none.
@@ -17,7 +18,7 @@ A modern, browser-native DASH adaptive streaming player built **entirely** from 
 
 ---
 
-## Architecture
+#### Architecture
 
 ```
 <videl-player>                  — MSE owner, main pump, bandwidth estimation
@@ -30,7 +31,7 @@ A modern, browser-native DASH adaptive streaming player built **entirely** from 
 
 Each layer communicates upward via bubbling `CustomEvent`s and downward via the `videlUpdate(PlayerState)` pump call that flows from `<videl-player>` on every tick.
 
-### Key design documents
+##### Key design documents
 
 | Document | Purpose |
 |----------|---------|
@@ -40,7 +41,7 @@ Each layer communicates upward via bubbling `CustomEvent`s and downward via the 
 
 ---
 
-## Project structure
+#### Project structure
 
 ```
 src/
@@ -78,16 +79,16 @@ decisions/                    — ADRs
 
 ---
 
-## Building
+#### Building
 
-### Prerequisites
+##### Prerequisites
 
 ```bash
 npm install
-npx playwright install chromium   # first time only
+npx playwright install chromium   ### first time only
 ```
 
-### Library
+##### Library
 
 ```bash
 npm run build
@@ -97,7 +98,7 @@ Outputs:
 - `dist/index.js` — unminified ESM, used by the test suite
 - `dist/index.min.js` + `dist/index.min.js.map` — minified with source maps, for production use
 
-### Demo page
+##### Demo page
 
 ```bash
 npm run build:demo
@@ -107,7 +108,7 @@ Outputs `demo/dist/bundle.js` (minified, with source map). Open `demo/index.html
 
 ---
 
-## Testing
+#### Testing
 
 All tests run in a real Chromium browser via Playwright. No jsdom, no mocking of browser APIs.
 
@@ -119,7 +120,7 @@ The suite covers every deliverable: mixins, the MPD parser, each custom element 
 
 ---
 
-## Events
+#### Events
 
 `<videl-player>` surfaces all internal activity through bubbling custom events:
 
@@ -136,7 +137,7 @@ The suite covers every deliverable: mixins, the MPD parser, each custom element 
 
 ---
 
-## Usage
+#### Usage
 
 ```html
 <script type="module" src="dist/index.min.js"></script>
@@ -164,7 +165,7 @@ With [`media-chrome`](https://github.com/muxinc/media-chrome) controls:
 </media-controller>
 ```
 
-### Attributes
+##### Attributes
 
 | Attribute | Default | Description |
 |-----------|---------|-------------|
@@ -175,13 +176,13 @@ With [`media-chrome`](https://github.com/muxinc/media-chrome) controls:
 
 ---
 
-## License
+#### License
 
 [MIT](LICENSE) © 2026 Jon-Carlos Rivera
 
 ---
 
-### Listening to trace events
+##### Listening to trace events
 
 ```js
 document.querySelector('videl-player').addEventListener('videl:trace', e => {
