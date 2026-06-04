@@ -8,20 +8,16 @@ import type { PlayerState } from '../player-state';
  * optional text).
  *
  * Mixin: `PickNMixin(LitElement)`.
- * Slot key: the `content-type` attribute of each `<videl-adaptation-set>` child.
+ * Key: the `content-type` attribute of each `<videl-adaptation-set>` child.
  *
- * Slot lifecycle:
- *   next   → preload one adaptation-set per content-type (slot=`${type}-next`).
- *   active → activate one adaptation-set per content-type simultaneously.
- *   null   → cascade-deactivate all children (PickNMixin).
+ * State lifecycle (ADR-0002 — `videl-state` attribute, not `slot`):
+ *   videl-state="active" → activate one adaptation-set per content-type.
+ *   videl-state="next"   → preload one adaptation-set per content-type.
+ *   videl-state removed  → cascade-deactivate all children (PickNMixin).
  *
  * Period-end detection: when `currentTime >= start + duration` on a pump tick,
  * `videl:done` fires exactly once with `{ periodId }`. Does NOT fire when the
  * `duration` attribute is absent (open-ended / live period).
- *
- * The `selectAdaptationSet(contentType, candidates)` method is intentionally
- * public and overridable — replace the element with a subclass or custom
- * element to implement custom adaptation-set selection logic.
  */
 export class VidelPeriod extends PickNMixin(LitElement) {
   static properties = {
@@ -41,13 +37,13 @@ export class VidelPeriod extends PickNMixin(LitElement) {
 
   #doneEmitted = false;
 
-  // ── Slot lifecycle ────────────────────────────────────────────────────────
+  // ── State lifecycle ───────────────────────────────────────────────────────
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
-    // PickNMixin + LitElement super chain (cascade deactivation when slot is removed).
+    // PickNMixin + LitElement super chain (cascade deactivation when videl-state removed).
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'slot') return;
+    if (name !== 'videl-state') return;
 
     if (value === 'active') {
       this.#activateAll();
@@ -62,15 +58,14 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   // ── Pump method ───────────────────────────────────────────────────────────
 
   /**
-   * Called by the parent presentation on each pump tick while `slot=active`.
+   * Called by the parent presentation on each pump tick while active.
    *
    * 1. Forward the full PlayerState to every currently-active adaptation set.
    * 2. Check for period end: if `currentTime >= start + duration`, fire
    *    `videl:done` exactly once.
    */
-  /** Named `videlUpdate` to avoid colliding with LitElement's `update()` lifecycle. */
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('slot') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') return;
 
     // Fan out to all active adaptation sets.
     for (const ads of this.#activeAdaptationSets) {
@@ -97,8 +92,6 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   /**
    * Given a list of `<videl-adaptation-set>` candidates sharing the same
    * `content-type`, return the one to activate. Default: first in DOM order.
-   *
-   * Override (via subclass or custom element swap) for custom selection logic.
    */
   selectAdaptationSet(_contentType: string, candidates: Element[]): Element | null {
     return candidates[0] ?? null;
@@ -112,10 +105,10 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     );
   }
 
-  /** All adaptation-set children whose slot ends with `-active`. */
+  /** All adaptation-set children that are currently active. */
   get #activeAdaptationSets(): Element[] {
-    return this.#childAdaptationSets.filter(el =>
-      el.getAttribute('slot')?.endsWith('-active') === true
+    return this.#childAdaptationSets.filter(
+      el => el.getAttribute('videl-state') === 'active'
     );
   }
 
@@ -123,7 +116,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   #groupByContentType(): Map<string, Element[]> {
     const map = new Map<string, Element[]>();
     for (const child of this.#childAdaptationSets) {
-      const key = child.getAttribute('content-type') ?? 'video';
+      const key    = child.getAttribute('content-type') ?? 'video';
       const bucket = map.get(key);
       if (bucket) {
         bucket.push(child);
@@ -138,7 +131,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   #activateAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
       const chosen = this.selectAdaptationSet(contentType, candidates);
-      if (chosen) this.activateChild(chosen); // PickNMixin keys by content-type
+      if (chosen) this.activateChild(chosen);
     }
   }
 
@@ -152,7 +145,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
 
   // ── PickNMixin contract ───────────────────────────────────────────────────
 
-  /** PickNMixin calls this to determine the slot-name group for a child. */
+  /** PickNMixin calls this to determine the per-key group for a child. */
   getSlotKey(child: Element): string {
     return child.getAttribute('content-type') ?? 'video';
   }
@@ -160,16 +153,20 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) return nothing;
     return html`
       <style>
-        :host { display: block; font-family: monospace; font-size: 11px;
-                border: 1px solid #a88; padding: 4px; margin: 2px; }
+        :host { display: block; }
+        ::slotted(videl-adaptation-set) { display: none; }
       </style>
-      <strong>videl-period</strong>
-      id=<em>${this.periodId}</em>
-      slot=<em>${this.slot || 'unslotted'}</em>
-      t=<em>${this.start}</em>+<em>${this.duration ?? '∞'}</em>s
+      <slot></slot>
+      ${this.debug ? html`
+        <div style="font-family:monospace;font-size:11px;border:1px solid #a88;padding:4px;margin-top:4px">
+          <strong>videl-period</strong>
+          id=<em>${this.periodId}</em>
+          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
+          t=<em>${this.start}</em>+<em>${this.duration ?? '∞'}</em>s
+        </div>
+      ` : nothing}
     `;
   }
 }

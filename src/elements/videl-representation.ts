@@ -6,20 +6,8 @@ import { trace } from '../trace';
 
 // ---------------------------------------------------------------------------
 // SourceBuffer-aware buffering utilities.
-//
-// Both functions operate on a single SourceBuffer's TimeRanges rather than
-// the video element's combined `.buffered`, because:
-//  - video.buffered is the INTERSECTION of all SourceBuffers — if audio lags,
-//    it makes video appear less buffered than it actually is.
-//  - Each representation owns exactly one SourceBuffer and should make fetch
-//    decisions based on that buffer's state alone.
 // ---------------------------------------------------------------------------
 
-/**
- * Returns true when [startTime, startTime+duration) is fully covered by the
- * given TimeRanges. A 0.1 s tolerance handles floating-point imprecision in
- * browser-reported buffer boundaries.
- */
 function isBuffered(startTime: number, duration: number, buffered: TimeRanges): boolean {
   const end = startTime + duration;
   for (let i = 0; i < buffered.length; i++) {
@@ -30,48 +18,24 @@ function isBuffered(startTime: number, duration: number, buffered: TimeRanges): 
   return false;
 }
 
-/**
- * Find the TimeRange that contains `t` (with 0.1 s tolerance) and return how
- * many seconds extend past `t` to the end of that range.
- *
- * Returns 0 when `t` falls in a gap — this correctly signals that we need to
- * fetch, even if other ranges exist further along the timeline.  Non-contiguous
- * buffers are handled by the segment-selection walk: once a gap is filled the
- * next tick will find a longer contiguous range and suppress further fetches.
- */
 function bufferedAhead(t: number, buffered: TimeRanges): number {
   for (let i = 0; i < buffered.length; i++) {
     if (buffered.start(i) <= t + 0.1 && buffered.end(i) > t) {
       return buffered.end(i) - t;
     }
   }
-  return 0; // t is in a gap or before any buffered range
+  return 0;
 }
 
 /**
  * `<videl-representation>` — owns a set of `<videl-segment>` children for a
  * single quality level.
  *
- * Slot lifecycle:
- *   next   → fetch + append the initialization segment (moov box).
- *   active → begin receiving `update(PlayerState)` pump calls; select and
- *            activate the correct segment on each tick.
- *   null   → cascade-deactivate all child segments (via PickOneMixin).
- *
- * The init segment must be appended before any media segment can be played.
- * If `slot=active` arrives before the init fetch finishes (direct activation
- * without prior `slot=next`), it is fetched inline. `update()` calls are
- * silently dropped until init completes.
- *
- * Segment selection in `update()`:
- *   1. Find the segment whose [start-time, start-time+duration) covers
- *      currentTime.
- *   2. Walk forward past any already-buffered segments to find the first one
- *      still needing a fetch → activate it.
- *   3. Walk forward from there to find the next unbuffered segment → preload
- *      it (slot=next).
- *   Advancement between segments is driven entirely by successive `update()`
- *   calls, NOT by `videl:done` events (criterion 8).
+ * State lifecycle (ADR-0002 — `videl-state` attribute, not `slot`):
+ *   videl-state="next"   → fetch + append the initialization segment (moov box).
+ *   videl-state="active" → begin receiving `videlUpdate(PlayerState)` pump calls;
+ *                          select and activate the correct segment on each tick.
+ *   videl-state removed  → cascade-deactivate all child segments (PickOneMixin).
  */
 export class VidelRepresentation extends PickOneMixin(LitElement) {
   static properties = {
@@ -87,36 +51,32 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     debug:                  { type: Boolean },
   };
 
-  repId                   = '';
-  bandwidth               = 0;
-  width                   = 0;
-  height                  = 0;
-  codecs                  = '';
-  mimeType                = '';
-  initializationUrl       = '';
+  repId                    = '';
+  bandwidth                = 0;
+  width                    = 0;
+  height                   = 0;
+  codecs                   = '';
+  mimeType                 = '';
+  initializationUrl        = '';
   initializationByteRange: string | null = null;
-  slot = '';
-  debug                   = false;
+  slot                     = '';
+  debug                    = false;
 
   // ── sourceBuffer — resets init state when a new buffer is assigned ────────
 
   #sourceBuffer: ManagedSourceBuffer | null = null;
 
-  get sourceBuffer(): ManagedSourceBuffer | null {
-    return this.#sourceBuffer;
-  }
+  get sourceBuffer(): ManagedSourceBuffer | null { return this.#sourceBuffer; }
 
   set sourceBuffer(val: ManagedSourceBuffer | null) {
     if (val === this.#sourceBuffer) return;
-    // Abort any in-flight init fetch against the old buffer.
     this.#initController?.abort();
     this.#initController = null;
     this.#initPromise    = null;
     this.#initAppended   = false;
     this.#sourceBuffer   = val;
-    // If we are already slotted and have a valid buffer, start init now.
-    // (Handles the edge case where sourceBuffer is set after slot.)
-    if (val && this.getAttribute('slot')) {
+    // If we already have a videl-state set and a valid buffer, start init now.
+    if (val && this.getAttribute('videl-state')) {
       this.#startInit();
     }
   }
@@ -125,59 +85,35 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
   #initAppended   = false;
   #initController: AbortController | null = null;
-  #initPromise:   Promise<void> | null = null;
+  #initPromise:    Promise<void> | null   = null;
 
-  // ── Slot lifecycle ────────────────────────────────────────────────────────
+  // ── State lifecycle ───────────────────────────────────────────────────────
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
-    // PickOneMixin + LitElement super chain (cascade deactivation happens here).
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'slot') return;
+    if (name !== 'videl-state') return;
 
     if (value === 'next' || value === 'active') {
       this.#startInit();
     } else if (value === null) {
-      // Abort any in-flight init fetch.
       this.#initController?.abort();
       this.#initController = null;
       this.#initPromise    = null;
-      // Reset initAppended so the init segment is always re-sent to the
-      // SourceBuffer on the next activation.
-      //
-      // Why: the SourceBuffer is shared across all representations of this
-      // AdaptationSet.  When a different representation is active in between,
-      // it appends its own init segment, reconfiguring the SourceBuffer's
-      // decoder parameters.  If we skipped re-sending our init here (the old
-      // behaviour), our media segments would be decoded against the wrong
-      // parameters → MSE errors / corrupted frames.
-      //
-      // Cost: one extra small network request (~1–4 KB moov box) per
-      // re-activation — negligible compared to media segment sizes.
+      // Reset so the init segment is always re-sent on the next activation.
+      // The SourceBuffer is shared across representations; a different rep may
+      // have reconfigured the decoder while we were inactive.
       this.#initAppended = false;
     }
   }
 
   // ── Public pump method ────────────────────────────────────────────────────
 
-  /**
-   * Called by the parent adaptation-set on each pump tick when `slot=active`.
-   * Selects the correct segment to fetch/append based on currentTime and
-   * buffer state. Already-buffered segments are skipped (not re-fetched).
-   *
-   * Named `videlUpdate` (not `update`) to avoid colliding with LitElement's
-   * internal `update(changedProperties)` lifecycle method.
-   */
   videlUpdate(state: PlayerState): void {
     if (!this.#initAppended) return;
-    if (this.getAttribute('slot') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') return;
     if (!this.#sourceBuffer) return;
 
-    // Resolve this representation's buffered TimeRanges from the state snapshot
-    // (preferred — no direct SourceBuffer access needed in the hot path) using
-    // the parent adaptation set's content-type as the lookup key.
-    // Falls back to reading from the SourceBuffer directly when running outside
-    // a full player context (e.g. unit tests with a mock MSB).
     const contentType = this.closest('videl-adaptation-set')
       ?.getAttribute('content-type') ?? '';
     const sbBuffered: TimeRanges =
@@ -185,9 +121,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
     const { currentTime, bufferAhead } = state;
 
-    // Suppress all fetching while the contiguous buffered run from currentTime
-    // is already long enough.  If currentTime is in a gap, bufferedAhead returns
-    // 0, so fetching is always allowed — we fill gaps before extending the buffer.
     const ahead = bufferedAhead(currentTime, sbBuffered);
     if (ahead >= bufferAhead) {
       trace(this, 'pump', 'buffer-full', {
@@ -200,20 +133,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const segs = this.#childSegments;
     if (segs.length === 0) return;
 
-    // 1. Find the segment whose time range covers currentTime.
     let startIdx = segs.findIndex(
       s => s.startTime <= currentTime && currentTime < s.startTime + s.duration
     );
-    // If currentTime precedes all segments, start from the beginning.
     if (startIdx < 0) {
       startIdx = currentTime < segs[0].startTime ? 0 : -1;
     }
-    if (startIdx < 0) return; // currentTime is past the last segment
+    if (startIdx < 0) return;
 
-    // 2. Walk forward past segments already present in the SourceBuffer.
-    //    This fills gaps: if [0-10] and [15-30] are buffered and currentTime=5,
-    //    we skip segment 0 (buffered), land on the segment covering 10-15 (gap),
-    //    and fetch it.
     let targetIdx = startIdx;
     while (
       targetIdx < segs.length &&
@@ -221,21 +148,19 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     ) {
       targetIdx++;
     }
-    if (targetIdx >= segs.length) return; // every segment ahead is buffered
+    if (targetIdx >= segs.length) return;
 
     const target = segs[targetIdx];
-    if (target.getAttribute('slot') !== 'active') {
+    if (target.getAttribute('videl-state') !== 'active') {
       trace(this, 'pump', 'segment-activate', {
         startTime: (target as any).startTime,
         duration:  (target as any).duration,
         url:       (target as any).url,
       });
       target.sourceBuffer = this.#sourceBuffer;
-      this.activateChild(target); // PickOneMixin deactivates any previous active segment
+      this.activateChild(target);
     }
 
-    // 3. Find the next unbuffered segment after the target and queue it for
-    //    prefetch, skipping any that are already in the SourceBuffer.
     let nextIdx = targetIdx + 1;
     while (
       nextIdx < segs.length &&
@@ -245,7 +170,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     }
     if (nextIdx < segs.length) {
       const next = segs[nextIdx];
-      if (next.getAttribute('slot') !== 'next') {
+      if (next.getAttribute('videl-state') !== 'next') {
         next.sourceBuffer = this.#sourceBuffer;
         this.preloadChild(next);
       }
@@ -274,7 +199,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
         trace(this, 'buffer', 'init-append-complete', { url: this.initializationUrl });
       })
       .catch((err: unknown) => {
-        if (this.getAttribute('slot') === null) return;
+        if (this.getAttribute('videl-state') === null) return;
         this.dispatchEvent(
           new CustomEvent('videl:segment:error', {
             bubbles: true,
@@ -304,19 +229,21 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) return nothing;
     return html`
       <style>
-        :host { display: block; font-family: monospace; font-size: 11px;
-                border: 1px solid #88a; padding: 4px; margin: 2px; }
+        :host { display: block; }
+        ::slotted(videl-segment) { display: none; }
       </style>
-      <strong>videl-representation</strong>
-      id=<em>${this.repId}</em>
-      bw=<em>${this.bandwidth}</em>
-      slot=<em>${this.slot || 'unslotted'}</em>
-      init=<em>${this.#initAppended ? 'done' : 'pending'}</em>
-      <slot name="active"></slot>
-      <slot name="next"></slot>
+      <slot></slot>
+      ${this.debug ? html`
+        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;margin-top:4px">
+          <strong>videl-representation</strong>
+          id=<em>${this.repId}</em>
+          bw=<em>${this.bandwidth}</em>
+          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
+          init=<em>${this.#initAppended ? 'done' : 'pending'}</em>
+        </div>
+      ` : nothing}
     `;
   }
 }

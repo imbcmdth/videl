@@ -81,7 +81,7 @@ async function runUpdateTest(
         return s;
       });
 
-      rep.setAttribute('slot', 'active');
+      rep.setAttribute('videl-state', 'active');
       await new Promise<void>(r => setTimeout(r, 400));
 
       rep.videlUpdate({
@@ -95,7 +95,7 @@ async function runUpdateTest(
         },
       });
 
-      return segs.map((s: any) => s.getAttribute('slot'));
+      return segs.map((s: any) => s.getAttribute('videl-state'));
     },
     opts
   );
@@ -175,7 +175,7 @@ test('criterion 5 — sourceBuffer is forwarded to segment before it is slotted'
     seg.setAttribute('url', '/fixtures/seg-0.mp4');
     rep.appendChild(seg);
 
-    rep.setAttribute('slot', 'active');
+    rep.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
     // sourceBuffer not yet set on seg (slot is still unset).
@@ -190,7 +190,7 @@ test('criterion 5 — sourceBuffer is forwarded to segment before it is slotted'
 
     // After update, seg should have been activated with sourceBuffer forwarded.
     return {
-      slot: seg.getAttribute('slot'),
+      slot: seg.getAttribute('videl-state'),
       hasSB: seg.sourceBuffer === mockMSB,
       hadSBBefore: sbBeforeUpdate === mockMSB,
     };
@@ -223,7 +223,7 @@ test('criterion 6 — slot=next triggers init segment fetch and append', async (
     rep.sourceBuffer = mockMSB;
     document.body.appendChild(rep);
 
-    rep.setAttribute('slot', 'next');
+    rep.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 400));
 
     return { appendCount: appendLog.length };
@@ -255,7 +255,7 @@ test('criterion 6a — initialization-byte-range sends a Range header', async ({
     rep.sourceBuffer = mockMSB;
     document.body.appendChild(rep);
 
-    rep.setAttribute('slot', 'next');
+    rep.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 400));
   });
 
@@ -285,7 +285,7 @@ test('criterion 7 — deactivation cascades synchronously to all child segments'
       return s;
     });
 
-    rep.setAttribute('slot', 'active');
+    rep.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
     rep.videlUpdate({
@@ -294,12 +294,12 @@ test('criterion 7 — deactivation cascades synchronously to all child segments'
     });
 
     // Verify slots set.
-    const before = segs.map((s: any) => s.getAttribute('slot'));
+    const before = segs.map((s: any) => s.getAttribute('videl-state'));
 
     // Deactivate the representation — check synchronously.
-    rep.removeAttribute('slot');
+    rep.removeAttribute('videl-state');
 
-    const after = segs.map((s: any) => s.getAttribute('slot'));
+    const after = segs.map((s: any) => s.getAttribute('videl-state'));
     return { before, after };
   });
 
@@ -332,7 +332,7 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
       return s;
     });
 
-    rep.setAttribute('slot', 'active');
+    rep.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
     rep.videlUpdate({
@@ -340,7 +340,7 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
-    const afterUpdate = segs.map((s: any) => s.getAttribute('slot'));
+    const afterUpdate = segs.map((s: any) => s.getAttribute('videl-state'));
 
     // Fire videl:done from the active segment — representation must not react.
     segs[0].dispatchEvent(new CustomEvent('videl:done', {
@@ -351,7 +351,7 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
     // Give any microtasks time to run.
     await new Promise<void>(r => setTimeout(r, 50));
 
-    const afterDone = segs.map((s: any) => s.getAttribute('slot'));
+    const afterDone = segs.map((s: any) => s.getAttribute('videl-state'));
     return { afterUpdate, afterDone };
   });
 
@@ -396,16 +396,16 @@ test('init segment is re-fetched after deactivation — even if it was appended 
     document.body.appendChild(rep);
 
     // First activation — init should be fetched.
-    rep.setAttribute('slot', 'active');
+    rep.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
     const initAppendedAfterFirst = rep._initAppended ?? 'unknown';
 
     // Deactivate.
-    rep.removeAttribute('slot');
+    rep.removeAttribute('videl-state');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Second activation — init must be re-fetched, not skipped.
-    rep.setAttribute('slot', 'active');
+    rep.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 400));
 
     return { initAppendedAfterFirst };
@@ -464,7 +464,7 @@ test('rendition A→B→A switch: each activation re-sends init to shared Source
     ads.appendChild(repB);
 
     ads.sourceBuffer = mockMSB;
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Step 1: low bandwidth → selects rep-a.

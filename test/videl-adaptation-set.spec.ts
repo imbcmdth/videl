@@ -109,7 +109,7 @@ test('criterion 2 — sourceBuffer forwarded to all representations on activatio
 
     const msb = makeMockMSB();
     ads.sourceBuffer = msb;
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     // Brief wait for any Lit microtasks.
     await new Promise<void>(r => setTimeout(r, 50));
 
@@ -144,7 +144,7 @@ test('criterion 3 — ABR selects highest representation not exceeding bandwidth
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
     ads.sourceBuffer = msb;
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // bandwidth=600k → target=480k → highest ≤ 480k → rep-500 is NOT ≤ 480k
@@ -154,21 +154,21 @@ test('criterion 3 — ABR selects highest representation not exceeding bandwidth
       bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atLow = ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    const atLow = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
 
     // bandwidth=2M → target=1.6M → rep-500(500k ≤ 1.6M ✓), rep-1500(1.5M ≤ 1.6M ✓), rep-4000(4M > 1.6M ✗)
     ads.videlUpdate({
       bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atMid = ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    const atMid = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
 
     // bandwidth=6M → target=4.8M → all three eligible → highest = rep-4000
     ads.videlUpdate({
       bandwidth: 6_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atHigh = ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    const atHigh = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
 
     return { atLow, atMid, atHigh };
   });
@@ -204,7 +204,7 @@ test('criterion 7 — abrSafetyFactor is configurable', async ({ page }) => {
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // With factor=1.0 and bandwidth=500k: target=500k, rep-500(500k ≤ 500k) → eligible.
@@ -212,7 +212,7 @@ test('criterion 7 — abrSafetyFactor is configurable', async ({ page }) => {
       bandwidth: 500_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    return ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
   });
 
   // With factor=0.8 this would have fallen back to rep-500 anyway, but the
@@ -246,7 +246,7 @@ test('criterion 4 — ABR switch fires videl:representation:switched', async ({ 
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
     ads.sourceBuffer = msb;
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     const events: any[] = [];
@@ -301,18 +301,18 @@ test('criterion 5 — previous representation is deactivated when ABR switches',
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Activate rep-500.
     ads.videlUpdate({ bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
-    const beforeSwitch = reps.map((r: any) => r.getAttribute('slot'));
+    const beforeSwitch = reps.map((r: any) => r.getAttribute('videl-state'));
 
     // Switch to rep-1500.
     ads.videlUpdate({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
-    const afterSwitch = reps.map((r: any) => r.getAttribute('slot'));
+    const afterSwitch = reps.map((r: any) => r.getAttribute('videl-state'));
 
     return { beforeSwitch, afterSwitch };
   });
@@ -344,7 +344,7 @@ test('criterion 6 — update() is forwarded to the active representation', async
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Activate the representation.
@@ -389,17 +389,17 @@ test('criterion 8 — deactivation cascades to all child representations', async
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     ads.videlUpdate({ bandwidth: 5_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
-    const before = reps.map((r: any) => r.getAttribute('slot'));
+    const before = reps.map((r: any) => r.getAttribute('videl-state'));
 
     // Deactivate synchronously.
-    ads.removeAttribute('slot');
-    const after = reps.map((r: any) => r.getAttribute('slot'));
+    ads.removeAttribute('videl-state');
+    const after = reps.map((r: any) => r.getAttribute('videl-state'));
 
     // Also verify sourceBuffer reference is cleared on the adaptation set.
     const sbCleared = ads.sourceBuffer === null;
@@ -428,7 +428,7 @@ test('criterion 9 — missing sourceBuffer fires videl:mse:error on activation',
     });
 
     // Activate WITHOUT setting sourceBuffer.
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 20));
 
     return events;
@@ -467,13 +467,13 @@ test('criterion 3 (safety factor) — rep at exactly bandwidth × 0.8 is eligibl
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     ads.videlUpdate({ bandwidth: 1_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
-    return ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
   });
 
   // 800k ≤ 1M*0.8=800k → eligible; 1500k > 800k → not eligible → rep-800 wins.
@@ -505,13 +505,13 @@ test('criterion 3 (playbackRate) — bandwidth target is divided by playbackRate
       append() { return Promise.resolve(); },
       get buffered() { return { length: 0, start: () => 0, end: () => 0 }; },
     };
-    ads.setAttribute('slot', 'active');
+    ads.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     ads.videlUpdate({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 2,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
-    return ads.querySelector('videl-representation[slot="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
   });
 
   // target = 2M * 0.8 / 2 = 800k; rep-500(500k ≤ 800k ✓), rep-1500(1.5M > 800k ✗) → rep-500

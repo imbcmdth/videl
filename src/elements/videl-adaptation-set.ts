@@ -9,14 +9,18 @@ import { trace } from '../trace';
  * for one content type (video | audio | text).
  *
  * Responsibilities:
- *  - ABR: on each `update()` tick, select the highest-bandwidth representation
- *    whose bitrate ≤ `bandwidth × abrSafetyFactor / playbackRate`.
+ *  - ABR: on each `videlUpdate()` tick, select the highest-bandwidth
+ *    representation whose bitrate ≤ `bandwidth × abrSafetyFactor / playbackRate`.
  *  - SourceBuffer distribution: forward the `ManagedSourceBuffer` received from
  *    `<videl-player>` to all child representations before activation.
  *  - Codec change: if an ABR switch requires a different codec, attempt
  *    `sourceBuffer.changeType()`; fire `videl:mse:incompatible` if that fails.
  *  - Error escalation: on `videl:segment:error` from a child, abort the
  *    SourceBuffer queue and fire `videl:mse:error` upward.
+ *
+ * State lifecycle (ADR-0002 — `videl-state` attribute, not `slot`):
+ *   videl-state="active" → distribute SourceBuffer; begin ABR + pump ticks.
+ *   videl-state removed  → clear SourceBuffer reference; cascade deactivation.
  */
 export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   static properties = {
@@ -33,8 +37,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   mimeType        = '';
   codecs          = '';
   lang            = '';
-  slot = '';
-  /** Highest-bandwidth representation chosen ≤ `bandwidth × factor / playbackRate`. */
+  slot            = '';
   abrSafetyFactor = 0.8;
   debug           = false;
 
@@ -42,15 +45,9 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #sourceBuffer: ManagedSourceBuffer | null = null;
 
-  /** Set by `<videl-player>` before this element is activated. */
-  get sourceBuffer(): ManagedSourceBuffer | null {
-    return this.#sourceBuffer;
-  }
-  set sourceBuffer(val: ManagedSourceBuffer | null) {
-    this.#sourceBuffer = val;
-  }
+  get sourceBuffer(): ManagedSourceBuffer | null { return this.#sourceBuffer; }
+  set sourceBuffer(val: ManagedSourceBuffer | null) { this.#sourceBuffer = val; }
 
-  /** MIME+codecs string of the currently active representation. */
   #activeMimeAndCodecs: string | null = null;
 
   // ── Custom element lifecycle ──────────────────────────────────────────────
@@ -66,18 +63,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   }
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
-    // Super chain: LitElement updates the reactive property; PickOneMixin
-    // cascades deactivation when slot is removed.
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'slot') return;
+    if (name !== 'videl-state') return;
 
-    // Accept both direct activation ('active') and PickNMixin keyed activation
-    // ('video-active', 'audio-active', etc.) — VidelPeriod uses PickNMixin
-    // which stamps 'contentType-active' rather than plain 'active'.
-    const isActive = value !== null && (value === 'active' || value.endsWith('-active'));
-
-    if (isActive) {
+    if (value === 'active') {
       if (!this.#sourceBuffer) {
         this.dispatchEvent(
           new CustomEvent('videl:mse:error', {
@@ -88,15 +78,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         );
         return;
       }
-      // Distribute SourceBuffer to every child representation before any is
-      // activated (criterion 2 — done here so it is set even before the
-      // first videlUpdate() call).
+      // Distribute SourceBuffer to every child representation before activation.
       for (const rep of this.#childRepresentations) {
         (rep as any).sourceBuffer = this.#sourceBuffer;
       }
     } else if (value === null) {
-      // Clear the SourceBuffer reference; do NOT call removeSourceBuffer
-      // (criterion 8).
       this.#sourceBuffer        = null;
       this.#activeMimeAndCodecs = null;
     }
@@ -104,18 +90,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   // ── Pump method ───────────────────────────────────────────────────────────
 
-  /**
-   * Called by the parent period on each pump tick while `slot=active`.
-   *
-   * 1. Run ABR — select the best representation for current bandwidth.
-   * 2. If the selection changed, attempt the switch (codec check, changeType).
-   * 3. Forward the full PlayerState to the active representation.
-   */
-  /** Named `videlUpdate` to avoid colliding with LitElement's `update()` lifecycle. */
   videlUpdate(state: PlayerState): void {
-    // Accept 'active' (direct) and 'video-active' / 'audio-active' (via PickNMixin).
-    const slot = this.getAttribute('slot');
-    if (!slot || !(slot === 'active' || slot.endsWith('-active'))) return;
+    if (this.getAttribute('videl-state') !== 'active') return;
 
     const target  = this.#selectRepresentation(state.bandwidth, state.playbackRate);
     if (!target) return;
@@ -124,7 +100,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     if (current !== target) {
       if (!this.#performSwitch(target, current)) {
-        // Switch blocked — continue forwarding to the current representation.
         this.#forwardUpdate(state);
         return;
       }
@@ -143,57 +118,38 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   get #activeRepresentation(): Element | null {
     return (
-      this.#childRepresentations.find(r => r.getAttribute('slot') === 'active') ?? null
+      this.#childRepresentations.find(
+        r => r.getAttribute('videl-state') === 'active'
+      ) ?? null
     );
   }
 
-  /**
-   * Select the highest-bandwidth representation whose bitrate does not exceed
-   * `bandwidth × abrSafetyFactor / playbackRate`. Falls back to the
-   * lowest-bandwidth representation when all exceed the target (e.g. on a
-   * very slow connection).
-   */
   #selectRepresentation(bandwidth: number, playbackRate: number): Element | null {
     const reps = this.#childRepresentations;
     if (reps.length === 0) return null;
 
     const target = bandwidth * this.abrSafetyFactor / Math.max(playbackRate, 0.01);
 
-    // Sort ascending by bandwidth for a stable pass.
     const sorted = [...reps].sort(
       (a, b) => Number((a as any).bandwidth ?? 0) - Number((b as any).bandwidth ?? 0)
     );
 
-    // Walk sorted list; keep the last one that fits.
     let best: Element | null = null;
     for (const rep of sorted) {
-      if (Number((rep as any).bandwidth ?? 0) <= target) {
-        best = rep;
-      }
+      if (Number((rep as any).bandwidth ?? 0) <= target) best = rep;
     }
 
-    // If nothing fits, fall back to the lowest bandwidth option.
     return best ?? sorted[0];
   }
 
-  /**
-   * Switch the active representation to `target`.
-   *
-   * Returns `false` (and fires `videl:mse:incompatible`) if the codec change
-   * required to use the new representation cannot be performed.
-   */
   #performSwitch(target: Element, prev: Element | null): boolean {
-    const tRep = target as any;
-    // Resolved mime+codecs: representation's own value, or fall back to
-    // the adaptation set's defaults (codecs are inherited at parse time
-    // but may not always be present on the representation element).
+    const tRep         = target as any;
     const targetMime   = (tRep.mimeType   || this.mimeType)  ?? '';
     const targetCodecs = (tRep.codecs     || this.codecs)    ?? '';
     const newMimeAndCodecs = targetCodecs
       ? `${targetMime}; codecs="${targetCodecs}"`
       : targetMime;
 
-    // Detect whether a codec change is needed.
     if (prev && this.#activeMimeAndCodecs && this.#activeMimeAndCodecs !== newMimeAndCodecs) {
       trace(this, 'mse', 'change-type', {
         contentType: this.contentType,
@@ -210,7 +166,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
             detail: { contentType: this.contentType, requiredCodecs: targetCodecs },
           })
         );
-        return false; // Abort the switch; castro will rebuild.
+        return false;
       }
     }
 
@@ -220,24 +176,17 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     const toId = tRep.repId ?? tRep.getAttribute?.('id') ?? null;
 
     trace(this, 'abr', fromId ? 'switch' : 'initial-select', {
-      contentType: this.contentType,
-      from:        fromId,
-      to:          toId,
+      contentType:   this.contentType,
+      from:          fromId,
+      to:            toId,
       fromBandwidth: prev ? Number((prev as any).bandwidth ?? 0) : undefined,
       toBandwidth:   Number(tRep.bandwidth ?? 0),
     });
 
-    // Ensure sourceBuffer is set on the target before it is activated.
     tRep.sourceBuffer = this.#sourceBuffer;
-
-    // PickOneMixin.activateChild removes the previous child's slot first,
-    // which triggers the null handler on the old representation and resets
-    // its #initAppended flag — see VidelRepresentation.attributeChangedCallback.
     this.activateChild(target);
     this.#activeMimeAndCodecs = newMimeAndCodecs;
 
-    // Fire the switch event only when there was a previous representation
-    // (first activation is not a "switch").
     if (fromId !== null) {
       this.dispatchEvent(
         new CustomEvent('videl:representation:switched', {
@@ -256,11 +205,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     if (active) (active as any).videlUpdate(state);
   }
 
-  /**
-   * Per ADR-0001 first-line error handling: abort the SourceBuffer queue and
-   * escalate as `videl:mse:error`. A full abort+retry path is a future
-   * enhancement (not required by V1 tests).
-   */
   #onSegmentError = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
     if (this.#sourceBuffer) {
@@ -281,18 +225,20 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) return nothing;
     return html`
       <style>
-        :host { display: block; font-family: monospace; font-size: 11px;
-                border: 1px solid #8a8; padding: 4px; margin: 2px; }
+        :host { display: block; }
+        ::slotted(videl-representation) { display: none; }
       </style>
-      <strong>videl-adaptation-set</strong>
-      type=<em>${this.contentType}</em>
-      slot=<em>${this.slot || 'unslotted'}</em>
-      abr=<em>${this.abrSafetyFactor}</em>
-      <slot name="active"></slot>
-      <slot name="next"></slot>
+      <slot></slot>
+      ${this.debug ? html`
+        <div style="font-family:monospace;font-size:11px;border:1px solid #8a8;padding:4px;margin-top:4px">
+          <strong>videl-adaptation-set</strong>
+          type=<em>${this.contentType}</em>
+          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
+          abr=<em>${this.abrSafetyFactor}</em>
+        </div>
+      ` : nothing}
     `;
   }
 }

@@ -1,22 +1,27 @@
 /**
- * PickNMixin — manages slot lifecycle for elements that activate multiple
- * children simultaneously, grouped by a key (e.g. content type: video/audio).
+ * PickNMixin — manages `videl-state` lifecycle for elements that activate
+ * multiple children simultaneously, grouped by a key (e.g. content type:
+ * video/audio).
  *
  * Guarantees:
- *  - At most one child per key holds `slot=${key}-active` at any time.
- *  - At most one child per key holds `slot=${key}-next` at any time.
- *  - Children with different keys can hold `slot=*-active` simultaneously.
- *  - Shadow slots are created lazily on first use of each key.
- *  - When the host's own `slot` attribute is removed, all slotted children are
+ *  - At most one child per key holds `videl-state="active"` at any time.
+ *  - At most one child per key holds `videl-state="next"` at any time.
+ *  - Children with different keys can hold `videl-state="active"` simultaneously.
+ *  - When the host's own `videl-state` attribute is removed, all children are
  *    synchronously deactivated (cascade).
  *
  * Subclasses must override `getSlotKey(child)` to map a child element to its
  * grouping key.
  *
  * Methods provided to subclasses:
- *  - `activateChild(el)` — promote el to `slot=${key}-active`
- *  - `preloadChild(el)` — promote el to `slot=${key}-next`
- *  - `deactivateAll()` — strip `slot` from every slotted child
+ *  - `activateChild(el)` — set `videl-state="active"` on el (deactivates previous
+ *                          element with the same key first)
+ *  - `preloadChild(el)`  — set `videl-state="next"` on el (same per-key exclusivity)
+ *  - `deactivateAll()`   — remove `videl-state` from every child that has it
+ *
+ * NOTE: this mixin no longer creates named shadow slots. The key is used only
+ * for internal per-group exclusivity tracking, not as a visible slot name.
+ * State is communicated exclusively through `videl-state` (ADR-0002).
  */
 
 import type { Constructor } from './pick-one-mixin';
@@ -32,32 +37,31 @@ type CEBase = Constructor<
 export function PickNMixin<TBase extends CEBase>(Base: TBase) {
   class PickN extends Base {
     #activeByKey: Map<string, Element> = new Map();
-    #nextByKey: Map<string, Element> = new Map();
+    #nextByKey:   Map<string, Element> = new Map();
 
     static get observedAttributes(): string[] {
-      // Same fix as PickOneMixin: walk up to find the getter, call with `this`.
+      // Same prototype-chain walk as PickOneMixin.
       let proto: any = Base;
       while (proto) {
         const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
         if (desc?.get) {
           const parentAttrs: string[] = desc.get.call(this) ?? [];
-          return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+          return parentAttrs.includes('videl-state')
+            ? parentAttrs
+            : [...parentAttrs, 'videl-state'];
         }
         proto = Object.getPrototypeOf(proto);
       }
-      return ['slot'];
+      return ['videl-state'];
     }
 
     connectedCallback(): void {
       super.connectedCallback?.();
-      if (!this.shadowRoot) {
-        this.attachShadow({ mode: 'open' });
-      }
     }
 
     attributeChangedCallback(name: string, old: string | null, value: string | null): void {
       super.attributeChangedCallback?.(name, old, value);
-      if (name === 'slot' && value === null) {
+      if (name === 'videl-state' && value === null) {
         this.deactivateAll();
       }
     }
@@ -71,66 +75,49 @@ export function PickNMixin<TBase extends CEBase>(Base: TBase) {
     }
 
     /**
-     * Promote `el` to `slot=${key}-active`. If another child with the same key
-     * already holds that slot, it is removed first.
+     * Set `videl-state="active"` on `el`. If another child with the same key
+     * already holds `videl-state="active"`, it is deactivated first.
      */
     activateChild(el: Element): void {
-      const key = this.getSlotKey(el);
-      const slotName = `${key}-active`;
-
+      const key  = this.getSlotKey(el);
       const prev = this.#activeByKey.get(key);
       if (prev && prev !== el) {
-        prev.removeAttribute('slot');
+        prev.removeAttribute('videl-state');
       }
-      // If this element was the next child for this key, clear that tracking.
+      // If this element was tracked as next for this key, clear that.
       if (this.#nextByKey.get(key) === el) {
         this.#nextByKey.delete(key);
       }
-
       this.#activeByKey.set(key, el);
-      this.#ensureSlot(slotName);
-      el.setAttribute('slot', slotName);
+      el.setAttribute('videl-state', 'active');
     }
 
     /**
-     * Promote `el` to `slot=${key}-next`. If another child with the same key
-     * already holds that slot, it is removed first.
+     * Set `videl-state="next"` on `el`. If another child with the same key
+     * already holds `videl-state="next"`, it is cleared first.
      */
     preloadChild(el: Element): void {
-      const key = this.getSlotKey(el);
-      const slotName = `${key}-next`;
-
+      const key  = this.getSlotKey(el);
       const prev = this.#nextByKey.get(key);
       if (prev && prev !== el) {
-        prev.removeAttribute('slot');
+        prev.removeAttribute('videl-state');
       }
-
       this.#nextByKey.set(key, el);
-      this.#ensureSlot(slotName);
-      el.setAttribute('slot', slotName);
+      el.setAttribute('videl-state', 'next');
     }
 
     /**
-     * Synchronously remove `slot` from every child that has one.
-     * Called automatically when the host's own slot is removed.
+     * Synchronously remove `videl-state` from every child that has it.
+     * Called automatically when the host's own `videl-state` is removed.
      */
     deactivateAll(): void {
       for (const child of Array.from(this.children)) {
-        if (child.hasAttribute('slot')) {
-          child.removeAttribute('slot');
+        if (child.hasAttribute('videl-state')) {
+          child.removeAttribute('videl-state');
         }
       }
       this.#activeByKey.clear();
       this.#nextByKey.clear();
-    }
-
-    #ensureSlot(name: string): void {
-      if (!this.shadowRoot) return;
-      if (!this.shadowRoot.querySelector(`slot[name="${name}"]`)) {
-        const slot = document.createElement('slot');
-        slot.name = name;
-        this.shadowRoot.appendChild(slot);
-      }
     }
   }
 

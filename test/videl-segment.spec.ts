@@ -97,12 +97,12 @@ test('criterion 2 — prefetch path: slot=next then slot=active appends and fire
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error', detail: e.detail?.error?.message }));
 
     // 1. Prefetch.
-    seg.setAttribute('slot', 'next');
+    seg.setAttribute('videl-state', 'next');
     // Wait long enough for the fetch to complete.
     await new Promise<void>(r => setTimeout(r, 500));
 
     // 2. Activate.
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     // Wait for append.
     await new Promise<void>(r => setTimeout(r, 500));
 
@@ -133,7 +133,7 @@ test('criterion 3 — direct activation (no prefetch): fetches inline and fires 
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error' }));
 
     // Go directly to active — no prior slot=next.
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 800));
 
     return events;
@@ -169,8 +169,8 @@ test('criterion 4 — abort during prefetch: no append and no event', async ({ p
     seg.addEventListener('videl:segment:error', (e: any) => events.push('error'));
 
     // Start prefetch then immediately abort.
-    seg.setAttribute('slot', 'next');
-    seg.removeAttribute('slot');
+    seg.setAttribute('videl-state', 'next');
+    seg.removeAttribute('videl-state');
 
     // Wait to confirm no events arrive.
     await new Promise<void>(r => setTimeout(r, 400));
@@ -198,11 +198,11 @@ test('criterion 5 — abort after prefetch complete: bytes discarded, no append'
     seg.addEventListener('videl:segment:error', () => events.push('error'));
 
     // Prefetch, wait for it to land.
-    seg.setAttribute('slot', 'next');
+    seg.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 500));
 
     // Remove slot before activation.
-    seg.removeAttribute('slot');
+    seg.removeAttribute('videl-state');
 
     // Wait to confirm no events arrive.
     await new Promise<void>(r => setTimeout(r, 300));
@@ -233,7 +233,7 @@ test('criterion 6 — fetch failure (404): fires videl:segment:error', async ({ 
     seg.addEventListener('videl:done',          () => events.push('done'));
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error', msg: e.detail?.error?.message }));
 
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 500));
 
     return events;
@@ -265,7 +265,7 @@ test('criterion 7 — append rejection: fires videl:segment:error', async ({ pag
     seg.addEventListener('videl:done',          () => events.push('done'));
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error', msg: e.detail?.error?.message }));
 
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 500));
 
     return events;
@@ -291,7 +291,7 @@ test('criterion 8 — missing sourceBuffer: fires videl:segment:error', async ({
     seg.addEventListener('videl:done',          () => events.push('done'));
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error', msg: e.detail?.error?.message }));
 
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 500));
 
     return events;
@@ -318,7 +318,7 @@ test('criterion 9 — videl:done detail includes correct startTime and duration'
     let detail: any = null;
     seg.addEventListener('videl:done', (e: any) => { detail = e.detail; });
 
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 800));
 
     return detail;
@@ -347,11 +347,11 @@ test('criterion 10 — re-slot after deactivation works cleanly', async ({ page 
     seg.addEventListener('videl:segment:error', (e: any) => events.push({ type: 'error' }));
 
     // First activation — succeeds.
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 800));
 
     // Deactivate.
-    seg.removeAttribute('slot');
+    seg.removeAttribute('videl-state');
 
     // Second activation — should work again (we need to remove the old bytes
     // from the buffer first so the append doesn't fail; reuse the same MSB
@@ -361,7 +361,7 @@ test('criterion 10 — re-slot after deactivation works cleanly', async ({ page 
     // The buffer already has these bytes but SourceBuffer won't reject a
     // re-append of the same range in all browsers — skip buffer state here
     // and just verify no throw / error event.
-    seg.setAttribute('slot', 'active');
+    seg.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 800));
 
     return events;
@@ -390,7 +390,7 @@ test('criterion 1 — slot=next issues a fetch request for the url', async ({ pa
     seg.setAttribute('duration', '5');
     document.body.appendChild(seg);
 
-    seg.setAttribute('slot', 'next');
+    seg.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 500));
   });
 

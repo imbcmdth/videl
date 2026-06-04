@@ -93,17 +93,17 @@ test('criterion 1 — video and audio adaptation sets are both activated on slot
     period.appendChild(video);
     period.appendChild(audio);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      videoSlot: video.getAttribute('slot'),
-      audioSlot: audio.getAttribute('slot'),
+      videoSlot: video.getAttribute('videl-state'),
+      audioSlot: audio.getAttribute('videl-state'),
     };
   });
 
-  expect(result.videoSlot).toBe('video-active');
-  expect(result.audioSlot).toBe('audio-active');
+  expect(result.videoSlot).toBe('active');
+  expect(result.audioSlot).toBe('active');
 });
 
 // ===========================================================================
@@ -125,15 +125,15 @@ test('criterion 2 — video, audio, and text are all activated simultaneously', 
       return el;
     });
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
-    return children.map((c: any) => c.getAttribute('slot'));
+    return children.map((c: any) => c.getAttribute('videl-state'));
   });
 
-  expect(result[0]).toBe('video-active');
-  expect(result[1]).toBe('audio-active');
-  expect(result[2]).toBe('text-active');
+  expect(result[0]).toBe('active');
+  expect(result[1]).toBe('active');
+  expect(result[2]).toBe('active');
 });
 
 // ===========================================================================
@@ -155,16 +155,16 @@ test('criterion 3 — only first video child is activated when two video childre
     period.appendChild(v1);
     period.appendChild(v2);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      v1Slot: v1.getAttribute('slot'),
-      v2Slot: v2.getAttribute('slot'),
+      v1Slot: v1.getAttribute('videl-state'),
+      v2Slot: v2.getAttribute('videl-state'),
     };
   });
 
-  expect(result.v1Slot).toBe('video-active'); // first in DOM order
+  expect(result.v1Slot).toBe('active'); // first in DOM order
   expect(result.v2Slot).toBeNull();            // second stays unslotted
 });
 
@@ -187,17 +187,17 @@ test('criterion 3a — slot=next preloads one adaptation set per content-type', 
     period.appendChild(video);
     period.appendChild(audio);
 
-    period.setAttribute('slot', 'next');
+    period.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      videoSlot: video.getAttribute('slot'),
-      audioSlot: audio.getAttribute('slot'),
+      videoSlot: video.getAttribute('videl-state'),
+      audioSlot: audio.getAttribute('videl-state'),
     };
   });
 
-  expect(result.videoSlot).toBe('video-next');
-  expect(result.audioSlot).toBe('audio-next');
+  expect(result.videoSlot).toBe('next');
+  expect(result.audioSlot).toBe('next');
 });
 
 // ===========================================================================
@@ -219,16 +219,16 @@ test('criterion 3b — second video child does not receive slot=next when first 
     period.appendChild(v1);
     period.appendChild(v2);
 
-    period.setAttribute('slot', 'next');
+    period.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      v1Slot: v1.getAttribute('slot'),
-      v2Slot: v2.getAttribute('slot'),
+      v1Slot: v1.getAttribute('videl-state'),
+      v2Slot: v2.getAttribute('videl-state'),
     };
   });
 
-  expect(result.v1Slot).toBe('video-next');
+  expect(result.v1Slot).toBe('next');
   expect(result.v2Slot).toBeNull();
 });
 
@@ -252,7 +252,7 @@ test('criterion 5 — update() is forwarded to all active adaptation sets', asyn
       return el;
     });
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     // Patch videlUpdate on each child to record calls.
@@ -292,7 +292,7 @@ test('criterion 6 — videl:done fires with periodId when period ends', async ({
     ads.videlUpdate = () => {};
     period.appendChild(ads);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     const events: any[] = [];
@@ -341,7 +341,7 @@ test('criterion 8 — no videl:done when duration attribute is absent', async ({
     ads.videlUpdate = () => {};
     period.appendChild(ads);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     const events: any[] = [];
@@ -379,20 +379,20 @@ test('criterion 7 — removing slot deactivates all child adaptation sets synchr
       return el;
     });
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
-    const before = ads.map((a: any) => a.getAttribute('slot'));
+    const before = ads.map((a: any) => a.getAttribute('videl-state'));
 
     // Deactivate synchronously.
-    period.removeAttribute('slot');
+    period.removeAttribute('videl-state');
 
-    const after = ads.map((a: any) => a.getAttribute('slot'));
+    const after = ads.map((a: any) => a.getAttribute('videl-state'));
     return { before, after };
   });
 
-  expect(result.before[0]).toBe('video-active');
-  expect(result.before[1]).toBe('audio-active');
+  expect(result.before[0]).toBe('active');
+  expect(result.before[1]).toBe('active');
   expect(result.after[0]).toBeNull();
   expect(result.after[1]).toBeNull();
 });
@@ -421,16 +421,16 @@ test('criterion 9 — first child in DOM order is activated regardless of start 
     period.appendChild(first);
     period.appendChild(second);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      firstSlot:  first.getAttribute('slot'),
-      secondSlot: second.getAttribute('slot'),
+      firstSlot:  first.getAttribute('videl-state'),
+      secondSlot: second.getAttribute('videl-state'),
     };
   });
 
-  expect(result.firstSlot).toBe('video-active');
+  expect(result.firstSlot).toBe('active');
   expect(result.secondSlot).toBeNull();
 });
 
@@ -452,7 +452,7 @@ test('criterion 6 (once) — videl:done fires exactly once even across many tick
     ads.videlUpdate = () => {};
     period.appendChild(ads);
 
-    period.setAttribute('slot', 'active');
+    period.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     let fireCount = 0;

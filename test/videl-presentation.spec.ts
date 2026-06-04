@@ -70,12 +70,12 @@ test('criterion 1 — first period receives slot=active when presentation is act
     pres.appendChild(p0);
     pres.appendChild(p1);
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     return {
-      p0Slot: p0.getAttribute('slot'),
-      p1Slot: p1.getAttribute('slot'),
+      p0Slot: p0.getAttribute('videl-state'),
+      p1Slot: p1.getAttribute('videl-state'),
     };
   });
 
@@ -102,7 +102,7 @@ test('criterion 3 — videl:done from period 0 activates period 1', async ({ pag
       return p;
     });
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     // Period 0 signals completion.
@@ -114,8 +114,8 @@ test('criterion 3 — videl:done from period 0 activates period 1', async ({ pag
     await new Promise<void>(r => setTimeout(r, 10));
 
     return {
-      p0Slot: periods[0].getAttribute('slot'),
-      p1Slot: periods[1].getAttribute('slot'),
+      p0Slot: periods[0].getAttribute('videl-state'),
+      p1Slot: periods[1].getAttribute('videl-state'),
     };
   });
 
@@ -146,7 +146,7 @@ test('criterion 4 — videl:done fires with detail.src when the last period comp
       if (e.target === pres) events.push({ ...e.detail });
     });
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     // The only period signals completion.
@@ -188,7 +188,7 @@ test('criterion 4 (no early) — presentation videl:done does not fire while mor
       if (e.target === pres) presentationDoneEvents.push(e.detail);
     });
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     // Period 0 done — period 1 still exists.
@@ -224,7 +224,7 @@ test('criterion — videl:done from a grandchild does not trigger period advance
     const grandchild = document.createElement('div');
     p0.appendChild(grandchild);
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
     // Fire videl:done from a grandchild — must NOT trigger advancement.
@@ -235,8 +235,8 @@ test('criterion — videl:done from a grandchild does not trigger period advance
     await new Promise<void>(r => setTimeout(r, 10));
 
     return {
-      p0Slot: p0.getAttribute('slot'),
-      p1Slot: p1.getAttribute('slot'),
+      p0Slot: p0.getAttribute('videl-state'),
+      p1Slot: p1.getAttribute('videl-state'),
     };
   });
 
@@ -262,7 +262,7 @@ test('criterion 5 — videlUpdate() is forwarded to the active period', async ({
     p0.setAttribute('duration', '30');
     pres.appendChild(p0);
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 50));
 
     // Patch videlUpdate AFTER Lit's update cycle.
@@ -295,14 +295,14 @@ test('criterion 8 — removing slot deactivates the active period synchronously'
     p0.setAttribute('period-id', 'p0');
     pres.appendChild(p0);
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
-    const slotBefore = p0.getAttribute('slot');
+    const slotBefore = p0.getAttribute('videl-state');
 
     // Deactivate synchronously.
-    pres.removeAttribute('slot');
-    const slotAfter = p0.getAttribute('slot');
+    pres.removeAttribute('videl-state');
+    const slotAfter = p0.getAttribute('videl-state');
 
     return { slotBefore, slotAfter };
   });
@@ -330,7 +330,7 @@ test('criterion 6 — slot=next with src triggers an HTTP fetch of the MPD URL',
     pres.setAttribute('type', 'static');
     document.body.appendChild(pres);
 
-    pres.setAttribute('slot', 'next');
+    pres.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 300));
   });
 
@@ -356,7 +356,7 @@ test('criterion 7 — slot=active with src and no children triggers an HTTP fetc
     // No children — triggers inline fetch.
     document.body.appendChild(pres);
 
-    pres.setAttribute('slot', 'active');
+    pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 300));
   });
 

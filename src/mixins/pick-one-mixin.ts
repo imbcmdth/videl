@@ -1,26 +1,27 @@
 /**
- * PickOneMixin — manages slot lifecycle for elements that activate exactly one
- * child at a time.
+ * PickOneMixin — manages `videl-state` lifecycle for elements that activate
+ * exactly one child at a time.
  *
  * Guarantees:
- *  - At most one child holds `slot=active` at any time.
- *  - At most one child holds `slot=next` at any time.
- *  - When the host's own `slot` attribute is removed, all slotted children are
+ *  - At most one child holds `videl-state="active"` at any time.
+ *  - At most one child holds `videl-state="next"` at any time.
+ *  - When the host's own `videl-state` attribute is removed, all children are
  *    synchronously deactivated (cascade).
  *
  * Methods provided to subclasses:
- *  - `activateChild(el)` — promote el to `slot=active`
- *  - `preloadChild(el)` — promote el to `slot=next`
- *  - `deactivateAll()` — strip `slot` from every slotted child
+ *  - `activateChild(el)` — set `videl-state="active"` on el
+ *  - `preloadChild(el)`  — set `videl-state="next"` on el
+ *  - `deactivateAll()`   — remove `videl-state` from every child that has it
  *
- * Shadow slots created: `<slot name="active">` and `<slot name="next">`.
+ * NOTE: this mixin no longer creates named shadow slots. Shadow DOM composition
+ * is the responsibility of each element's own `render()` method. State is
+ * communicated exclusively through the `videl-state` attribute (ADR-0002).
  */
 
 export type Constructor<T = HTMLElement> = new (...args: any[]) => T;
 
 // Augmented base type that includes custom element lifecycle hooks so that
-// `super.connectedCallback?.()` etc. type-check without `(super as any)` casts
-// (which esbuild cannot lower).
+// `super.connectedCallback?.()` etc. type-check without `(super as any)` casts.
 type CEBase = Constructor<
   HTMLElement & {
     connectedCallback?(): void;
@@ -32,7 +33,7 @@ type CEBase = Constructor<
 export function PickOneMixin<TBase extends CEBase>(Base: TBase) {
   class PickOne extends Base {
     #activeChild: Element | null = null;
-    #nextChild: Element | null = null;
+    #nextChild:   Element | null = null;
 
     static get observedAttributes(): string[] {
       // Walk up the static prototype chain from Base to find the first ancestor
@@ -40,85 +41,73 @@ export function PickOneMixin<TBase extends CEBase>(Base: TBase) {
       // (the actual subclass) as receiver. When Base is LitElement this lets
       // the subclass finalize its full reactive-property attribute set rather
       // than getting the empty list of LitElement itself. For plain HTMLElement
-      // bases no getter is found and we fall back to ['slot'].
+      // bases no getter is found and we fall back to ['videl-state'].
       let proto: any = Base;
       while (proto) {
         const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
         if (desc?.get) {
           const parentAttrs: string[] = desc.get.call(this) ?? [];
-          return parentAttrs.includes('slot') ? parentAttrs : [...parentAttrs, 'slot'];
+          return parentAttrs.includes('videl-state')
+            ? parentAttrs
+            : [...parentAttrs, 'videl-state'];
         }
         proto = Object.getPrototypeOf(proto);
       }
-      return ['slot'];
+      return ['videl-state'];
     }
 
     connectedCallback(): void {
       super.connectedCallback?.();
-      if (!this.shadowRoot) {
-        this.attachShadow({ mode: 'open' });
-      }
-      this.#ensureSlot('active');
-      this.#ensureSlot('next');
     }
 
     attributeChangedCallback(name: string, old: string | null, value: string | null): void {
       super.attributeChangedCallback?.(name, old, value);
-      // When own slot is removed, cascade deactivation synchronously.
-      if (name === 'slot' && value === null) {
+      // When own videl-state is removed, cascade deactivation synchronously.
+      if (name === 'videl-state' && value === null) {
         this.deactivateAll();
       }
     }
 
     /**
-     * Promote `el` to `slot=active`. If another child already holds
-     * `slot=active`, its slot attribute is removed first.
+     * Promote `el` to `videl-state="active"`. If another child already holds
+     * `videl-state="active"`, its attribute is removed first.
      */
     activateChild(el: Element): void {
       if (this.#activeChild && this.#activeChild !== el) {
-        this.#activeChild.removeAttribute('slot');
+        this.#activeChild.removeAttribute('videl-state');
       }
       // If the element was previously the next child, clear that tracking.
       if (this.#nextChild === el) {
         this.#nextChild = null;
       }
       this.#activeChild = el;
-      el.setAttribute('slot', 'active');
+      el.setAttribute('videl-state', 'active');
     }
 
     /**
-     * Promote `el` to `slot=next` (prefetch). If another child already holds
-     * `slot=next`, its slot attribute is removed first.
+     * Promote `el` to `videl-state="next"` (prefetch). If another child already
+     * holds `videl-state="next"`, its attribute is removed first.
      */
     preloadChild(el: Element): void {
       if (this.#nextChild && this.#nextChild !== el) {
-        this.#nextChild.removeAttribute('slot');
+        this.#nextChild.removeAttribute('videl-state');
       }
       this.#nextChild = el;
-      el.setAttribute('slot', 'next');
+      el.setAttribute('videl-state', 'next');
     }
 
     /**
-     * Synchronously remove `slot` from every child that has one.
-     * Called automatically when the host's own slot is removed.
+     * Synchronously remove `videl-state` from every child that has it.
+     * Called automatically when the host's own `videl-state` is removed.
      */
     deactivateAll(): void {
       for (const child of Array.from(this.children)) {
-        if (child.hasAttribute('slot')) {
-          child.removeAttribute('slot');
+        if (child.hasAttribute('videl-state')) {
+          child.removeAttribute('videl-state');
         }
       }
       this.#activeChild = null;
-      this.#nextChild = null;
-    }
-
-    #ensureSlot(name: string): void {
-      if (!this.shadowRoot) return;
-      if (!this.shadowRoot.querySelector(`slot[name="${name}"]`)) {
-        const slot = document.createElement('slot');
-        slot.name = name;
-        this.shadowRoot.appendChild(slot);
-      }
+      this.#nextChild   = null;
     }
   }
 

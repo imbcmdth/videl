@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('PickOneMixin', () => {
 
-  test('criterion 1 — activating a second child removes slot=active from the first', async ({ page }) => {
+  test('criterion 1 — activating a second child removes videl-state from the first', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin } = await import('/dist/index.js');
       class El extends PickOneMixin(HTMLElement) {}
@@ -48,16 +48,16 @@ test.describe('PickOneMixin', () => {
       host.activateChild(c2);
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('active');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('active');
   });
 
-  test('criterion 2 — preloading a second child removes slot=next from the first', async ({ page }) => {
+  test('criterion 2 — preloading a second child removes videl-state from the first', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin } = await import('/dist/index.js');
       class El extends PickOneMixin(HTMLElement) {}
@@ -76,16 +76,16 @@ test.describe('PickOneMixin', () => {
       host.preloadChild(c2);
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('next');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('next');
   });
 
-  test('criterion 3 — removing host slot synchronously strips slot from all slotted children', async ({ page }) => {
+  test('criterion 3 — removing host videl-state synchronously strips videl-state from all children', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin } = await import('/dist/index.js');
       class El extends PickOneMixin(HTMLElement) {}
@@ -96,31 +96,29 @@ test.describe('PickOneMixin', () => {
       await customElements.whenDefined('test-pick-one-c3');
 
       const active = document.createElement('div');
-      const next = document.createElement('div');
+      const next   = document.createElement('div');
       host.appendChild(active);
       host.appendChild(next);
 
       host.activateChild(active);
       host.preloadChild(next);
 
-      // Give the host a slot so removing it triggers deactivation cascade.
-      host.setAttribute('slot', 'active');
-
-      // Remove the host's slot synchronously.
-      host.removeAttribute('slot');
+      // Give the host a videl-state so removing it triggers deactivation cascade.
+      host.setAttribute('videl-state', 'active');
+      host.removeAttribute('videl-state');
 
       // Check immediately — no await — to verify synchronous deactivation.
       return {
-        activeSlot: active.getAttribute('slot'),
-        nextSlot: next.getAttribute('slot'),
+        activeState: active.getAttribute('videl-state'),
+        nextState:   next.getAttribute('videl-state'),
       };
     });
 
-    expect(result.activeSlot).toBeNull();
-    expect(result.nextSlot).toBeNull();
+    expect(result.activeState).toBeNull();
+    expect(result.nextState).toBeNull();
   });
 
-  test('criterion 10 — native slotchange fires on <slot name="active"> and <slot name="next"> on transitions', async ({ page }) => {
+  test('criterion 10 — MutationObserver fires on videl-state transitions', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin } = await import('/dist/index.js');
       class El extends PickOneMixin(HTMLElement) {}
@@ -133,27 +131,27 @@ test.describe('PickOneMixin', () => {
       const child = document.createElement('div');
       host.appendChild(child);
 
-      const activeSlot = host.shadowRoot!.querySelector('slot[name="active"]');
-      const nextSlot = host.shadowRoot!.querySelector('slot[name="next"]');
-
-      if (!activeSlot || !nextSlot) return { error: 'shadow slots missing' };
-
-      let activeChanges = 0;
-      let nextChanges = 0;
-      activeSlot.addEventListener('slotchange', () => activeChanges++);
-      nextSlot.addEventListener('slotchange', () => nextChanges++);
+      const states: string[] = [];
+      const observer = new MutationObserver(records => {
+        for (const r of records) {
+          if (r.attributeName === 'videl-state') {
+            states.push((r.target as Element).getAttribute('videl-state') ?? 'removed');
+          }
+        }
+      });
+      observer.observe(child, { attributes: true, attributeFilter: ['videl-state'] });
 
       host.preloadChild(child);
-      // Flush microtasks so slotchange fires.
       await new Promise<void>(r => setTimeout(r, 0));
       host.activateChild(child);
       await new Promise<void>(r => setTimeout(r, 0));
 
-      return { activeChanges, nextChanges };
+      observer.disconnect();
+      return { states };
     });
 
-    expect(result.activeChanges).toBeGreaterThanOrEqual(1);
-    expect(result.nextChanges).toBeGreaterThanOrEqual(1);
+    expect(result.states).toContain('next');
+    expect(result.states).toContain('active');
   });
 
 });
@@ -164,7 +162,7 @@ test.describe('PickOneMixin', () => {
 
 test.describe('PickNMixin', () => {
 
-  test('criterion 4 — children with different keys can both hold slot=active', async ({ page }) => {
+  test('criterion 4 — children with different keys can both hold videl-state="active"', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickNMixin } = await import('/dist/index.js');
       class El extends PickNMixin(HTMLElement) {
@@ -189,13 +187,13 @@ test.describe('PickNMixin', () => {
       host.activateChild(audio);
 
       return {
-        videoSlot: video.getAttribute('slot'),
-        audioSlot: audio.getAttribute('slot'),
+        videoState: video.getAttribute('videl-state'),
+        audioState: audio.getAttribute('videl-state'),
       };
     });
 
-    expect(result.videoSlot).toBe('video-active');
-    expect(result.audioSlot).toBe('audio-active');
+    expect(result.videoState).toBe('active');
+    expect(result.audioState).toBe('active');
   });
 
   test('criterion 5 — same key: newer active assignment wins; older is removed', async ({ page }) => {
@@ -219,16 +217,16 @@ test.describe('PickNMixin', () => {
       host.activateChild(c2);
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('video-active');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('active');
   });
 
-  test('criterion 5a — different keys can both hold slot=next simultaneously', async ({ page }) => {
+  test('criterion 5a — different keys can both hold videl-state="next" simultaneously', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickNMixin } = await import('/dist/index.js');
       class El extends PickNMixin(HTMLElement) {
@@ -249,13 +247,13 @@ test.describe('PickNMixin', () => {
       host.preloadChild(a);
 
       return {
-        vSlot: v.getAttribute('slot'),
-        aSlot: a.getAttribute('slot'),
+        vState: v.getAttribute('videl-state'),
+        aState: a.getAttribute('videl-state'),
       };
     });
 
-    expect(result.vSlot).toBe('video-next');
-    expect(result.aSlot).toBe('audio-next');
+    expect(result.vState).toBe('next');
+    expect(result.aState).toBe('next');
   });
 
   test('criterion 5b — same key: newer next assignment wins; older is removed', async ({ page }) => {
@@ -279,16 +277,16 @@ test.describe('PickNMixin', () => {
       host.preloadChild(c2);
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('audio-next');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('next');
   });
 
-  test('criterion 3 (PickNMixin) — removing host slot synchronously deactivates all children', async ({ page }) => {
+  test('criterion 3 (PickNMixin) — removing host videl-state synchronously deactivates all children', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickNMixin } = await import('/dist/index.js');
       class El extends PickNMixin(HTMLElement) {
@@ -308,20 +306,20 @@ test.describe('PickNMixin', () => {
       host.activateChild(v);
       host.activateChild(a);
 
-      host.setAttribute('slot', 'active');
-      host.removeAttribute('slot');
+      host.setAttribute('videl-state', 'active');
+      host.removeAttribute('videl-state');
 
       return {
-        vSlot: v.getAttribute('slot'),
-        aSlot: a.getAttribute('slot'),
+        vState: v.getAttribute('videl-state'),
+        aState: a.getAttribute('videl-state'),
       };
     });
 
-    expect(result.vSlot).toBeNull();
-    expect(result.aSlot).toBeNull();
+    expect(result.vState).toBeNull();
+    expect(result.aState).toBeNull();
   });
 
-  test('criterion 11 — shadow slots for a key are created lazily', async ({ page }) => {
+  test('criterion 11 — activateChild sets videl-state="active"; no prior state before activation', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickNMixin } = await import('/dist/index.js');
       class El extends PickNMixin(HTMLElement) {
@@ -333,28 +331,21 @@ test.describe('PickNMixin', () => {
       document.body.appendChild(host);
       await customElements.whenDefined('test-pick-n-c11');
 
-      // Before any activation, slots should not exist.
-      const beforeVideo = !!host.shadowRoot?.querySelector('slot[name="video-active"]');
-      const beforeAudio = !!host.shadowRoot?.querySelector('slot[name="audio-active"]');
-
       const v = document.createElement('div'); v.setAttribute('data-key', 'video');
       host.appendChild(v);
+
+      const beforeState = v.getAttribute('videl-state');
       host.activateChild(v);
+      const afterState = v.getAttribute('videl-state');
 
-      // After activating video, only the video slot should exist.
-      const afterVideo = !!host.shadowRoot?.querySelector('slot[name="video-active"]');
-      const afterAudio = !!host.shadowRoot?.querySelector('slot[name="audio-active"]');
-
-      return { beforeVideo, beforeAudio, afterVideo, afterAudio };
+      return { beforeState, afterState };
     });
 
-    expect(result.beforeVideo).toBe(false);
-    expect(result.beforeAudio).toBe(false);
-    expect(result.afterVideo).toBe(true);
-    expect(result.afterAudio).toBe(false);
+    expect(result.beforeState).toBeNull();
+    expect(result.afterState).toBe('active');
   });
 
-  test('criterion 10a — slotchange fires on the appropriate keyed slot', async ({ page }) => {
+  test('criterion 10a — MutationObserver fires on videl-state transitions for same-key activation', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickNMixin } = await import('/dist/index.js');
       class El extends PickNMixin(HTMLElement) {
@@ -366,26 +357,37 @@ test.describe('PickNMixin', () => {
       document.body.appendChild(host);
       await customElements.whenDefined('test-pick-n-c10a');
 
-      const v = document.createElement('div'); v.setAttribute('data-key', 'video');
-      host.appendChild(v);
-      host.activateChild(v); // creates the slot lazily
-
-      const videoSlot = host.shadowRoot!.querySelector('slot[name="video-active"]');
-      if (!videoSlot) return { error: 'slot missing' };
-
-      let changes = 0;
-      videoSlot.addEventListener('slotchange', () => changes++);
-
-      // Activate a new child to trigger a slotchange.
+      const v1 = document.createElement('div'); v1.setAttribute('data-key', 'video');
       const v2 = document.createElement('div'); v2.setAttribute('data-key', 'video');
+      host.appendChild(v1);
       host.appendChild(v2);
+
+      host.activateChild(v1);
+
+      const changes: string[] = [];
+      const observer = new MutationObserver(records => {
+        for (const r of records) {
+          if (r.attributeName === 'videl-state') {
+            const which = (r.target as Element) === v1 ? 'v1' : 'v2';
+            const val   = (r.target as Element).getAttribute('videl-state') ?? 'removed';
+            changes.push(`${which}:${val}`);
+          }
+        }
+      });
+      observer.observe(v1, { attributes: true, attributeFilter: ['videl-state'] });
+      observer.observe(v2, { attributes: true, attributeFilter: ['videl-state'] });
+
+      // Activating v2 with same key should deactivate v1.
       host.activateChild(v2);
       await new Promise<void>(r => setTimeout(r, 0));
 
+      observer.disconnect();
       return { changes };
     });
 
-    expect(result.changes).toBeGreaterThanOrEqual(1);
+    // v1 was deactivated, v2 was activated.
+    expect(result.changes).toContain('v1:removed');
+    expect(result.changes).toContain('v2:active');
   });
 
 });
@@ -420,18 +422,18 @@ test.describe('SequentialMixin', () => {
       c1.dispatchEvent(new CustomEvent('videl:done', { bubbles: true }));
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
-        c3Slot: c3.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
+        c3State: c3.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('active');
-    expect(result.c3Slot).toBe('next');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('active');
+    expect(result.c3State).toBe('next');
   });
 
-  test('criterion 7 — no next sibling: no error thrown, no slot changes', async ({ page }) => {
+  test('criterion 7 — no next sibling: no error thrown, no state changes', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { PickOneMixin, SequentialMixin } = await import('/dist/index.js');
       class El extends SequentialMixin(PickOneMixin(HTMLElement) as any) {}
@@ -447,7 +449,7 @@ test.describe('SequentialMixin', () => {
 
       try {
         c1.dispatchEvent(new CustomEvent('videl:done', { bubbles: true }));
-        return { threw: false, c1Slot: c1.getAttribute('slot') };
+        return { threw: false, c1State: c1.getAttribute('videl-state') };
       } catch (e: any) {
         return { threw: true, error: e.message };
       }
@@ -455,7 +457,7 @@ test.describe('SequentialMixin', () => {
 
     expect(result.threw).toBe(false);
     // c1 should have been deactivated
-    expect(result.c1Slot).toBeNull();
+    expect(result.c1State).toBeNull();
   });
 
   test('criterion 8 — direct unslotted→active skip does not break sequential advancement', async ({ page }) => {
@@ -480,13 +482,13 @@ test.describe('SequentialMixin', () => {
       c1.dispatchEvent(new CustomEvent('videl:done', { bubbles: true }));
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
-    expect(result.c1Slot).toBeNull();
-    expect(result.c2Slot).toBe('active');
+    expect(result.c1State).toBeNull();
+    expect(result.c2State).toBe('active');
   });
 
   test('criterion 9 — deactivation cascade is recursive and synchronous', async ({ page }) => {
@@ -512,19 +514,19 @@ test.describe('SequentialMixin', () => {
       grandparent.activateChild(parent);
       parent.activateChild(child);
 
-      // Give grandparent a slot so removing it cascades.
-      grandparent.setAttribute('slot', 'active');
-      grandparent.removeAttribute('slot');
+      // Give grandparent a videl-state so removing it cascades.
+      grandparent.setAttribute('videl-state', 'active');
+      grandparent.removeAttribute('videl-state');
 
       // Check synchronously.
       return {
-        parentSlot: parent.getAttribute('slot'),
-        childSlot: child.getAttribute('slot'),
+        parentState: parent.getAttribute('videl-state'),
+        childState:  child.getAttribute('videl-state'),
       };
     });
 
-    expect(result.parentSlot).toBeNull();
-    expect(result.childSlot).toBeNull();
+    expect(result.parentState).toBeNull();
+    expect(result.childState).toBeNull();
   });
 
   test('criterion — SequentialMixin: videl:done from grandchild does NOT trigger advancement', async ({ page }) => {
@@ -550,14 +552,14 @@ test.describe('SequentialMixin', () => {
       grandchild.dispatchEvent(new CustomEvent('videl:done', { bubbles: true }));
 
       return {
-        c1Slot: c1.getAttribute('slot'),
-        c2Slot: c2.getAttribute('slot'),
+        c1State: c1.getAttribute('videl-state'),
+        c2State: c2.getAttribute('videl-state'),
       };
     });
 
     // c1 should still be active — grandchild event was ignored.
-    expect(result.c1Slot).toBe('active');
-    expect(result.c2Slot).toBeNull();
+    expect(result.c1State).toBe('active');
+    expect(result.c2State).toBeNull();
   });
 
 });

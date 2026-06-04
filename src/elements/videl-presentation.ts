@@ -12,15 +12,16 @@ import type { PlayerState } from '../player-state';
  * advance to the next presentation in a playlist.
  *
  * Mixin stack: `SequentialMixin(PickOneMixin(LitElement))`.
- * Completion event listened by SequentialMixin: `'videl:done'`, filtered to
- * direct `<videl-period>` children (`event.target.parentElement === this`).
  *
- * Slot lifecycle:
- *   next   → if `src` is set and not yet populated, fetch + parse the MPD
- *             (requires DEL-007 parser; hook is present, full round-trip deferred).
- *   active → if not yet populated, fetch + parse inline; then activate the
- *             first `<videl-period>` child.
- *   null   → abort any in-flight fetch; cascade-deactivate children.
+ * State lifecycle (ADR-0002 — `videl-state` attribute, not `slot`):
+ *   videl-state="next"   → if `src` is set and not yet populated, fetch + parse
+ *                          the MPD (prefetch).
+ *   videl-state="active" → if not yet populated fetch inline; then activate the
+ *                          first `<videl-period>` child.
+ *   videl-state removed  → abort any in-flight fetch; cascade-deactivate children.
+ *
+ * Shadow DOM: default slot with technical children hidden by CSS. The element
+ * itself is the playlist card; no wrapper or named card slot is needed.
  */
 export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) as any) {
   static properties = {
@@ -45,9 +46,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   connectedCallback(): void {
     super.connectedCallback();
-    // Additional listener alongside SequentialMixin's own 'videl:done' listener:
-    // detect when the LAST period fires videl:done and escalate as the
-    // presentation's own completion event with { src }.
     this.addEventListener('videl:done', this.#onPeriodDone);
   }
 
@@ -60,21 +58,19 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // SequentialMixin → PickOneMixin → LitElement super chain.
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'slot') return;
+    if (name !== 'videl-state') return;
 
     if (value === 'next') {
-      // Prefetch: fetch + parse the MPD for this presentation so it is ready
-      // before it becomes active. Only fetch if children not already present.
+      // Prefetch: fetch + parse the MPD so it is ready before activation.
       if (this.src && this.#childPeriods.length === 0) {
         this.#populate();
       }
     } else if (value === 'active') {
       if (this.src && this.#childPeriods.length === 0) {
-        // Direct activation without prior prefetch: fetch + parse inline, then
-        // activate the first period.
+        // Direct activation without prior prefetch: fetch inline then activate.
         this.#populate().then(() => this.#activateFirstPeriod());
       } else {
-        // Children already present (parser pre-populated or prefetch completed).
+        // Children already present (pre-populated or prefetch completed).
         this.#activateFirstPeriod();
       }
     } else if (value === null) {
@@ -87,15 +83,16 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   /** Forward the pump tick to the currently active `<videl-period>`. */
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('slot') !== 'active') return;
-    const active = this.#childPeriods.find(p => p.getAttribute('slot') === 'active');
+    if (this.getAttribute('videl-state') !== 'active') return;
+    const active = this.#childPeriods.find(
+      p => p.getAttribute('videl-state') === 'active'
+    );
     if (active) (active as any).videlUpdate(state);
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childPeriods(): Element[] {
-    // Cast needed: SequentialMixin(…as any) loses HTMLElement context for `this`.
     return Array.from((this as unknown as HTMLElement).children).filter(
       (el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period'
     ) as Element[];
@@ -106,11 +103,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     if (first) this.activateChild(first);
   }
 
-  /**
-   * Fetch + parse the MPD at `this.src` and populate child elements.
-   * Full implementation requires the DEL-007 parser; this hook is present so
-   * the fetch wiring is testable now and the parser can be dropped in later.
-   */
   async #populate(): Promise<void> {
     if (!this.src) return;
 
@@ -120,8 +112,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       if (!response.ok) throw new Error(`HTTP ${response.status} fetching ${this.src}`);
       const xml = await response.text();
 
-      // Dynamic import so the parser can be swapped in when DEL-007 is ready.
-      // Falls back gracefully if the parser module does not exist yet.
       let parseMpd: ((xml: string, baseUrl: string) => Element) | null = null;
       try {
         const mod = await import('../parser/mpd-parser.js' as any);
@@ -132,9 +122,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
       if (parseMpd) {
         const subtree = parseMpd(xml, this.src);
-        // Replace children with parsed subtree's children.
         while (this.firstChild) this.removeChild(this.firstChild);
-        // parseMpd returns a <videl-presentation> whose children we adopt.
         while (subtree.firstChild) this.appendChild(subtree.firstChild);
       }
     } catch (err: unknown) {
@@ -151,30 +139,13 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     }
   }
 
-  /**
-   * Fired on every `videl:done` that bubbles to this element.
-   * Filters to direct `<videl-period>` children. If the completing period is
-   * the last one (no next DOM sibling), fires the presentation's own
-   * `videl:done` with `{ src }` so `<videl-player>` advances the playlist.
-   *
-   * Note: SequentialMixin already handles *advancement* to the next period.
-   * This listener handles the *termination* case where no next period exists.
-   */
   #onPeriodDone = (event: Event): void => {
     const target = event.target as Element;
-    // Cast needed: SequentialMixin(…as any) means TypeScript doesn't know
-    // `this` is an HTMLElement, so the comparison would otherwise be flagged
-    // as having no overlap with HTMLElement | null.
-    const self = this as unknown as HTMLElement;
-    // Only act on direct <videl-period> children.
+    const self   = this as unknown as HTMLElement;
     if (target.parentElement !== self) return;
     if (target.tagName.toLowerCase() !== 'videl-period') return;
-
-    // If there is a next sibling, SequentialMixin has already activated it —
-    // this is not the last period.
     if (target.nextElementSibling !== null) return;
 
-    // Last period completed — signal presentation done.
     self.dispatchEvent(
       new CustomEvent('videl:done', {
         bubbles:  true,
@@ -187,22 +158,27 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) return nothing;
     return html`
       <style>
-        :host { display: block; font-family: monospace; font-size: 11px;
-                border: 1px solid #88a; padding: 4px; margin: 2px; }
+        :host { display: block; }
+        /*
+         * Technical children injected by self-population are hidden by default.
+         * They remain in the composed tree for DevTools inspection; the debug
+         * flag or a consumer stylesheet can override this to make them visible.
+         */
+        ::slotted(videl-period) { display: none; }
       </style>
-      <strong>videl-presentation</strong>
-      type=<em>${this.presentationType}</em>
-      slot=<em>${this.slot || 'unslotted'}</em>
-      dur=<em>${this.mediaPresentationDuration ?? '?'}</em>s
-      <slot name="active"></slot>
-      <slot name="next"></slot>
+      <slot></slot>
+      ${this.debug ? html`
+        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;margin-top:4px">
+          <strong>videl-presentation</strong>
+          type=<em>${this.presentationType}</em>
+          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
+          dur=<em>${this.mediaPresentationDuration ?? '?'}</em>s
+        </div>
+      ` : nothing}
     `;
   }
 }
 
-// Cast needed: the as-any mixin chain makes VidelPresentation's constructor
-// signature opaque to the CustomElementConstructor constraint.
 customElements.define('videl-presentation', VidelPresentation as unknown as CustomElementConstructor);

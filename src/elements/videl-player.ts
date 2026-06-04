@@ -282,7 +282,7 @@ export class VidelPlayer extends HTMLElement {
 
     // Activate the presentation — this cascades down through period → adaptation
     // sets → representations.
-    (presEl as any).setAttribute('slot', 'active');
+    presEl.setAttribute('videl-state', 'active');
     this.#activePresentation = presEl;
 
     trace(this, 'mse', 'setup-complete', {
@@ -296,7 +296,7 @@ export class VidelPlayer extends HTMLElement {
 
   #teardownPresentation(): void {
     if (this.#activePresentation) {
-      (this.#activePresentation as any).removeAttribute('slot');
+      this.#activePresentation.removeAttribute('videl-state');
       this.#activePresentation = null;
     }
   }

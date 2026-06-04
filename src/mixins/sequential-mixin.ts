@@ -42,7 +42,7 @@ export function SequentialMixin<TBase extends Constructor<HTMLElement & SlotHost
         const next = target.nextElementSibling;
 
         // Deactivate the completing child.
-        target.removeAttribute('slot');
+        target.removeAttribute('videl-state');
 
         if (!next) return; // End of sequence — nothing to advance to.
 
