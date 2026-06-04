@@ -4,38 +4,41 @@ import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
 
 /**
- * `<videl-player>` — the root orchestrator.
+ * `<videl-player>` — the root orchestrator and playlist container.
  *
- * Responsibilities:
- *  - Fetches + parses the DASH MPD at `src`.
- *  - Sole owner of `MediaSource` and its object URL.
- *  - Calls `addSourceBuffer` for each content type and distributes the
- *    resulting `ManagedSourceBuffer` to child `<videl-adaptation-set>`
- *    elements before activating the presentation.
- *  - Runs a `setTimeout`-based pump that calls `videlUpdate(PlayerState)`
- *    on the active `<videl-presentation>` every `tick-ms` milliseconds.
- *  - Maintains a rolling bandwidth estimate from `videl:done` events fired
- *    by `<videl-segment>` children and includes it in every `PlayerState`.
- *  - Watches for `videl:mse:error` events and executes the MSE rebuild
- *    procedure to restore playback from the saved `currentTime`.
- *  - Watches for direct-child `<videl-period>` mutations and re-pumps
- *    immediately so ad-insertion changes take effect without waiting for
- *    the next tick.
+ * Two operating modes:
  *
- * HTMLMediaElement interface:
+ * **Legacy / single-stream (`src` attribute):**
+ * ```html
+ * <videl-player src="stream.mpd"></videl-player>
+ * ```
+ * The player fetches + parses the MPD, creates a `<videl-presentation>` child,
+ * and manages the full MSE lifecycle. Changing `src` replaces the presentation
+ * and restarts the stream.
+ *
+ * **Playlist mode (multiple `<videl-presentation>` children):**
+ * ```html
+ * <videl-player>
+ *   <videl-presentation src="ep1.mpd" duration="2700">
+ *     <img src="thumb1.jpg" /><h3>Episode 1</h3>
+ *   </videl-presentation>
+ *   <videl-presentation src="ep2.mpd" duration="2580">…</videl-presentation>
+ * </videl-player>
+ * ```
+ * The player sequences through pre-declared `<videl-presentation>` children:
+ *  - On connection, sets `videl-state="active"` on the first presentation and
+ *    `videl-state="next"` on the second (prefetch).
+ *  - On `videl:done` from a presentation, tears down MSE, advances to the next
+ *    presentation, emits `videl:playlist:advance`, and resumes playback.
+ *  - Stops (does not loop) after the last presentation.
+ *
+ * State is communicated via `videl-state` (ADR-0002); the player never sets the
+ * `slot` attribute on presentation children.
+ *
+ * HTMLMediaElement proxy surface:
  *  `play()`, `pause()`, `currentTime` (get/set), `duration`, `paused`,
  *  `buffered`, `volume` (get/set), `muted` (get/set), `readyState`,
- *  `playbackRate` (get/set) — all proxy the internal `<video>` element.
- *
- * Compatibility with media-chrome:
- *  Slot `<videl-player>` as the media element inside `<media-controller>`,
- *  or access the internal video via the `nativeVideo` property.
- *
- * Note: `CustomVideoElement` from `custom-video-element` creates a
- * `document.createElement('template')` at module parse time, which
- * prevents bundling with esbuild in a Node context. `VidelPlayer` therefore
- * extends `HTMLElement` directly and wraps an internal `<video>`, providing
- * an equivalent HTMLMediaElement-compatible surface area.
+ *  `playbackRate` (get/set) — all delegate to the internal `<video>`.
  */
 export class VidelPlayer extends HTMLElement {
   static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'debug'];
@@ -47,24 +50,20 @@ export class VidelPlayer extends HTMLElement {
 
   // ── MSE state ─────────────────────────────────────────────────────────────
 
-  #mediaSource: MediaSource | null = null;
-  #objectUrl:   string | null      = null;
-  /** contentType → ManagedSourceBuffer (one per content type per MSE session). */
+  #mediaSource:  MediaSource | null = null;
+  #objectUrl:    string | null      = null;
   #sourceBuffers = new Map<string, ManagedSourceBuffer>();
 
   // ── Pump state ────────────────────────────────────────────────────────────
 
   #tickMs       = 250;
-  #bufferAhead  = 30; // seconds of forward buffer to maintain
+  #bufferAhead  = 30;
   #pumpTimer:   ReturnType<typeof setTimeout> | null = null;
   #activePresentation: Element | null = null;
 
   // ── Bandwidth estimation (EWMA) ───────────────────────────────────────────
 
-  // Start optimistically so the ABR algorithm tries a high rendition on the
-  // first tick and adapts downward if the network can't sustain it.  Real
-  // throughput measurements replace this quickly after the first segment.
-  #bandwidth = 1_000_000; // initial: 5 Mbps
+  #bandwidth = 1_000_000; // optimistic start; real throughput replaces it quickly
 
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
@@ -86,17 +85,14 @@ export class VidelPlayer extends HTMLElement {
       </style>`;
 
     this.#video = document.createElement('video');
-    this.#shadow.appendChild(this.#video);
+      this.#shadow.appendChild(this.#video);
 
-    // Forward media events from the internal video to this element.
     for (const name of [
       'play','pause','timeupdate','seeking','seeked','ended',
       'waiting','canplay','canplaythrough','durationchange','volumechange',
       'loadedmetadata','loadeddata','error',
     ]) {
-      this.#video.addEventListener(name, () => {
-        this.dispatchEvent(new Event(name));
-      });
+      this.#video.addEventListener(name, () => this.dispatchEvent(new Event(name)));
     }
 
     this.#mutationObserver = new MutationObserver(this.#onMutation);
@@ -110,14 +106,22 @@ export class VidelPlayer extends HTMLElement {
     this.addEventListener('videl:mse:error', this.#onMseError   as EventListener);
     this.#video.addEventListener('seeking',  this.#onVideoSeeking);
 
-    // If `src` was set before connection, start loading now.
     const src = this.getAttribute('src');
-    if (src) this.#beginLoad(src);
+    if (src) {
+      this.#beginLoad(src);
+    } else if (this.#childPresentations.length > 0) {
+      // Pre-declared playlist — start immediately.
+      this.#activatePlaylist();
+    }
   }
 
   disconnectedCallback(): void {
     this.#stopPump();
     this.#loadAbort?.abort();
+    // Clear state from any active/next presentations so they aren't stale.
+    for (const pres of this.#childPresentations) {
+      pres.removeAttribute('videl-state');
+    }
     this.#mutationObserver.disconnect();
     this.removeEventListener('videl:done',      this.#onVidelDone  as EventListener);
     this.removeEventListener('videl:mse:error', this.#onMseError   as EventListener);
@@ -145,13 +149,15 @@ export class VidelPlayer extends HTMLElement {
   play()  { return this.#video.play(); }
   pause() { this.#video.pause(); }
 
-  get currentTime():        number  { return this.#video.currentTime; }
-  set currentTime(v: number)        { this.#seekTo(v); }
+  get currentTime():       number  { return this.#video.currentTime; }
+  set currentTime(v: number)       { this.#seekTo(v); }
 
   get duration(): number {
-    // Prefer the manifest's declared total duration over the MSE duration.
-    const pres = this.querySelector('videl-presentation');
-    const d    = pres?.getAttribute('media-presentation-duration');
+    // Prefer the active (or any available) presentation's manifest duration.
+    const pres = this.#activePresentation ?? this.querySelector('videl-presentation');
+    const mpd  = pres?.getAttribute('media-presentation-duration');
+    const disp = pres?.getAttribute('duration');
+    const d    = mpd ?? disp;
     return d ? Number(d) : (this.#video.duration || NaN);
   }
 
@@ -171,20 +177,58 @@ export class VidelPlayer extends HTMLElement {
   get bufferAhead():   number  { return this.#bufferAhead; }
   set bufferAhead(v: number)   { this.#bufferAhead = Math.max(1, v); }
 
-  /** Direct access to the internal <video> element for media-chrome slotting. */
   get nativeVideo(): HTMLVideoElement { return this.#video; }
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  // ── Playlist helpers ──────────────────────────────────────────────────────
+
+  get #childPresentations(): Element[] {
+    return [...this.querySelectorAll(':scope > videl-presentation')];
+  }
+
+  /** Start playing the pre-declared playlist from the first presentation. */
+  #activatePlaylist(): void {
+    const presentations = this.#childPresentations;
+    if (presentations.length === 0 || this.#activePresentation) return;
+
+    // Pre-fetch the second presentation while the first activates.
+    if (presentations.length > 1) {
+      presentations[1].setAttribute('videl-state', 'next');
+    }
+
+    const ctrl      = new AbortController();
+    this.#loadAbort = ctrl;
+    this.#activatePresentation(presentations[0], ctrl.signal).catch(() => {});
+  }
+
+  /**
+   * Core activation sequence for playlist mode:
+   *  1. `videlPopulate()` — fetch + parse MPD (idempotent if already done).
+   *  2. `#setupMse()`     — open MediaSource, create SourceBuffers.
+   *  3. `videl-state="active"` — cascade-activates down to periods.
+   */
+  async #activatePresentation(presEl: Element, signal: AbortSignal): Promise<void> {
+    trace(this, 'lifecycle', 'presentation-activate', {
+      src: presEl.getAttribute('src') ?? '',
+    });
+
+    // Populate: fetch + parse MPD if not already done (idempotent).
+    if (typeof (presEl as any).videlPopulate === 'function') {
+      await (presEl as any).videlPopulate();
+    }
+    if (signal.aborted) return;
+
+    await this.#setupMse(presEl, signal);
+  }
+
+  // ── Legacy load (src attribute) ───────────────────────────────────────────
 
   async #beginLoad(src: string): Promise<void> {
     if (!src || !this.isConnected) return;
 
-    // Cancel any previous in-flight load and tear down existing MSE.
     this.#loadAbort?.abort();
     this.#loadAbort = new AbortController();
     const signal    = this.#loadAbort.signal;
 
-    // Snapshot play state before teardown for auto-play continuation.
     const wasPlaying = !this.#video.paused;
     trace(this, 'lifecycle', 'src-change', { src, wasPlaying });
     this.#stopPump();
@@ -200,8 +244,9 @@ export class VidelPlayer extends HTMLElement {
       const presEl = parseMpd(xml, src);
       if (signal.aborted) return;
 
-      // Replace any stale presentation children.
+      // Replace all presentation children with the newly parsed one.
       for (const old of [...this.querySelectorAll(':scope > videl-presentation')]) {
+        old.removeAttribute('videl-state');
         this.removeChild(old);
       }
       this.appendChild(presEl);
@@ -209,8 +254,6 @@ export class VidelPlayer extends HTMLElement {
       if (this.hasAttribute('debug')) this.#propagateDebug(true);
 
       await this.#setupMse(presEl, signal);
-      // Continue playback if the stream was playing when src changed (e.g.
-      // mid-stream reload or error-free quality-level swap at player level).
       if (wasPlaying) this.#video.play().catch(() => {});
     } catch (err: unknown) {
       if ((err as any)?.name === 'AbortError') return;
@@ -227,7 +270,6 @@ export class VidelPlayer extends HTMLElement {
     this.#objectUrl   = url;
     this.#video.src   = url;
 
-    // Wait for sourceopen.
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         ms.removeEventListener('sourceopen', onOpen);
@@ -237,24 +279,24 @@ export class VidelPlayer extends HTMLElement {
       const onErr  = () => { cleanup(); reject(new Error('MediaSource error')); };
       ms.addEventListener('sourceopen', onOpen, { once: true });
       ms.addEventListener('error',      onErr,  { once: true });
-      signal.addEventListener('abort',  () => { cleanup(); reject(new DOMException('Aborted', 'AbortError')); });
+      signal.addEventListener('abort',  () => {
+        cleanup();
+        reject(new DOMException('Aborted', 'AbortError'));
+      });
     });
 
     if (signal.aborted || ms.readyState !== 'open') return;
 
     trace(this, 'mse', 'source-open', {});
 
-    // Create one SourceBuffer per unique content type from the presentation.
     const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')];
     for (const ads of adsSets) {
       const contentType = ads.getAttribute('content-type') ?? '';
       if (this.#sourceBuffers.has(contentType)) {
-        // Already created for this content type — distribute to this ads too.
         (ads as any).sourceBuffer = this.#sourceBuffers.get(contentType);
         continue;
       }
 
-      // Resolve the most specific mime+codecs from the first representation.
       const adsMime   = ads.getAttribute('mime-type') ?? '';
       const adsCodecs = ads.getAttribute('codecs')    ?? '';
       const firstRep  = ads.querySelector('videl-representation');
@@ -280,8 +322,6 @@ export class VidelPlayer extends HTMLElement {
 
     if (signal.aborted) return;
 
-    // Activate the presentation — this cascades down through period → adaptation
-    // sets → representations.
     presEl.setAttribute('videl-state', 'active');
     this.#activePresentation = presEl;
 
@@ -340,12 +380,9 @@ export class VidelPlayer extends HTMLElement {
 
   #pumpTick(): void {
     if (!this.#activePresentation) return;
-    // Snapshot each SourceBuffer's buffered ranges independently.
-    // This gives downstream elements an accurate per-track view without
-    // them needing to hold direct SourceBuffer references.
     const sourceBuffered = new Map<string, TimeRanges>();
-    for (const [contentType, msb] of this.#sourceBuffers) {
-      sourceBuffered.set(contentType, msb.buffered);
+    for (const [ct, msb] of this.#sourceBuffers) {
+      sourceBuffered.set(ct, msb.buffered);
     }
 
     const state: PlayerState = {
@@ -364,65 +401,98 @@ export class VidelPlayer extends HTMLElement {
   #seekTo(time: number): void {
     trace(this, 'lifecycle', 'seek', { to: +time.toFixed(3) });
     this.#video.currentTime = time;
-    // Pump immediately so the correct segment is activated without waiting
-    // for the next scheduled tick.
     this.#stopPump();
     this.#pumpTick();
     this.#startPump();
   }
 
   #onVideoSeeking = (): void => {
-    // Same: pump immediately on browser-initiated seeks.
     this.#stopPump();
     this.#pumpTick();
     this.#startPump();
   };
 
-  // ── Bandwidth estimation ──────────────────────────────────────────────────
+  // ── Event handlers ────────────────────────────────────────────────────────
 
   #onVidelDone = (event: Event): void => {
     const target = event.target as Element;
-    if (target.tagName.toLowerCase() !== 'videl-segment') return;
+    const tag    = target.tagName.toLowerCase();
 
-    const { bytes = 0, fetchMs = 0 } = (event as CustomEvent).detail ?? {};
+    if (tag === 'videl-segment') {
+      // Bandwidth estimation from real fetch throughput.
+      const { bytes = 0, fetchMs = 0 } = (event as CustomEvent).detail ?? {};
+      if (bytes > 0 && fetchMs >= 50) {
+        const measuredBps = (bytes * 8) / (fetchMs / 1000);
+        this.#bandwidth = 0.666 * this.#bandwidth + 0.334 * measuredBps;
+      }
+      return;
+    }
 
-    // Compute actual network throughput from the segment fetch timing.
-    // Ignore implausibly short fetches (< 50 ms) — these are likely cache hits
-    // and would inflate the estimate with a non-representative sample.
-    if (bytes > 0 && fetchMs >= 50) {
-      const measuredBps = (bytes * 8) / (fetchMs / 1000);
-      // EWMA α=0.334: weight recent measurements without overreacting to spikes.
-      this.#bandwidth = 0.666 * this.#bandwidth + 0.334 * measuredBps;
+    if (tag === 'videl-presentation' && target.parentElement === this) {
+      this.#onPresentationDone(target);
     }
   };
 
-  // ── Error recovery ────────────────────────────────────────────────────────
+  #onPresentationDone(completedPres: Element): void {
+    const presentations = this.#childPresentations;
+    const currentIdx    = presentations.indexOf(completedPres);
+    const nextPres      = presentations[currentIdx + 1];
 
-  #onMseError = (_event: Event): void => {
-    // Snapshot full playback state before teardown.
-    // #teardownMse() calls video.load() which unconditionally pauses and
-    // resets the element — we must restore both position AND playing state.
-    const savedTime  = this.#video.currentTime;
     const wasPlaying = !this.#video.paused;
-    trace(this, 'mse', 'rebuild-start', {
-      reason:     'videl:mse:error',
-      savedTime:  +savedTime.toFixed(3),
-      wasPlaying,
+    const fromSrc    = completedPres.getAttribute('src') ?? '';
+
+    trace(this, 'lifecycle', 'playlist-advance', {
+      from:  fromSrc,
+      to:    nextPres?.getAttribute('src') ?? null,
+      index: currentIdx + 1,
     });
 
     this.#teardownPresentation();
     this.#teardownMse();
 
-    // Re-setup against the existing parsed presentation subtree if present.
+    if (!nextPres) {
+      // End of playlist.
+      this.#stopPump();
+      return;
+    }
+
+    this.dispatchEvent(new CustomEvent('videl:playlist:advance', {
+      bubbles: true,
+      detail: {
+        from:  fromSrc,
+        to:    nextPres.getAttribute('src') ?? '',
+        index: currentIdx + 1,
+      },
+    }));
+
+    // Pre-fetch the presentation after next while activating next.
+    const afterNext = presentations[currentIdx + 2];
+    if (afterNext && !afterNext.getAttribute('videl-state')) {
+      afterNext.setAttribute('videl-state', 'next');
+    }
+
+    const ctrl      = new AbortController();
+    this.#loadAbort = ctrl;
+    this.#activatePresentation(nextPres, ctrl.signal).then(() => {
+      if (wasPlaying) this.#video.play().catch(() => {});
+    }).catch(() => {});
+  }
+
+  #onMseError = (_event: Event): void => {
+    const savedTime  = this.#video.currentTime;
+    const wasPlaying = !this.#video.paused;
+    trace(this, 'mse', 'rebuild-start', {
+      reason: 'videl:mse:error', savedTime: +savedTime.toFixed(3), wasPlaying,
+    });
+
+    this.#teardownPresentation();
+    this.#teardownMse();
+
     const pres = this.querySelector('videl-presentation');
     if (pres) {
       const ctrl = new AbortController();
       this.#setupMse(pres, ctrl.signal).then(() => {
         if (savedTime > 0) this.#video.currentTime = savedTime;
-        // Resume playback if it was active before the error.  The play()
-        // call may resolve immediately (if data is already buffered) or
-        // wait until the pump has appended enough — either way the browser
-        // handles the timing.
         if (wasPlaying) this.#video.play().catch(() => {});
       }).catch(() => {});
     }
@@ -431,12 +501,18 @@ export class VidelPlayer extends HTMLElement {
   // ── MutationObserver ──────────────────────────────────────────────────────
 
   #onMutation = (mutations: MutationRecord[]): void => {
-    const hasPeriodChange = mutations.some(m =>
-      [...m.addedNodes, ...m.removedNodes].some(
-        n => n instanceof Element && n.tagName.toLowerCase() === 'videl-period'
-      )
-    );
-    if (hasPeriodChange) {
+    const added = mutations.flatMap(m => [...m.addedNodes])
+      .filter((n): n is Element => n instanceof Element);
+
+    // New <videl-presentation> children added while player is idle → start playlist.
+    const hasNewPres = added.some(n => n.tagName.toLowerCase() === 'videl-presentation');
+    if (hasNewPres && !this.#activePresentation && !this.getAttribute('src')) {
+      this.#activatePlaylist();
+    }
+
+    // New <videl-period> children (ad insertion inside a presentation) → re-pump.
+    const hasNewPeriod = added.some(n => n.tagName.toLowerCase() === 'videl-period');
+    if (hasNewPeriod) {
       this.#stopPump();
       this.#pumpTick();
       this.#startPump();
@@ -446,11 +522,11 @@ export class VidelPlayer extends HTMLElement {
   // ── Debug propagation ─────────────────────────────────────────────────────
 
   #propagateDebug(on: boolean): void {
-    const selector = [
+    const sel = [
       'videl-presentation','videl-period','videl-adaptation-set',
       'videl-representation','videl-segment',
     ].join(',');
-    for (const el of this.querySelectorAll(selector)) {
+    for (const el of this.querySelectorAll(sel)) {
       on ? el.setAttribute('debug', '') : el.removeAttribute('debug');
     }
   }

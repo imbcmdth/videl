@@ -33,8 +33,8 @@ const PRESET_STREAMS: { label: string; url: string }[] = [
     url:   'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd',
   },
   {
-    label: 'Tears of Steel (Bitmovin / Sintel)',
-    url:   'https://bitmovin-a.akamaihd.net/content/sintel/sintel.mpd',
+    label: 'BBC Testcard (DASH-IF / BBC)',
+    url:   'https://rdmedia.bbc.co.uk/testcard/vod/manifests/avc-full.mpd',
   },
   {
     label: 'DASH-IF SegmentBase fMP4',
