@@ -1,6 +1,6 @@
 # Videl
 
-<img src="videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="right"/>
+<img src="images/videl-logo.svg" alt="Meet Videl" height="400" style="margin-right:12px" align="right"/>
 
 #### _AKA: Comrade Video Element_
 
