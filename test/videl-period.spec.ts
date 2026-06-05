@@ -109,7 +109,7 @@ test('criterion 1 — video and audio adaptation sets are both activated on slot
 // ===========================================================================
 // Criterion 2 — text track also activated when present
 // ===========================================================================
-test('criterion 2 — video, audio, and text are all activated simultaneously', async ({ page }) => {
+test('criterion 2 — video and audio are activated; text is skipped (MSE cannot render text tracks)', async ({ page }) => {
   const result = await page.evaluate(async () => {
     await import('/dist/index.js');
 
@@ -131,9 +131,9 @@ test('criterion 2 — video, audio, and text are all activated simultaneously', 
     return children.map((c: any) => c.getAttribute('videl-state'));
   });
 
-  expect(result[0]).toBe('active');
-  expect(result[1]).toBe('active');
-  expect(result[2]).toBe('active');
+  expect(result[0]).toBe('active'); // video — activated
+  expect(result[1]).toBe('active'); // audio — activated
+  expect(result[2]).toBeNull();     // text  — skipped; MSE cannot render MP4-encapsulated text
 });
 
 // ===========================================================================

@@ -127,17 +127,25 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     return map;
   }
 
-  /** Activate the first adaptation set per content-type simultaneously. */
+  /** Activate the first adaptation set per content-type simultaneously.
+   *
+   * Text tracks are intentionally excluded: MSE has no mechanism to render
+   * text from an MP4 container — that requires separate in-band parsing and
+   * injection into the HTMLVideoElement's native TextTrack API, which is
+   * beyond the current scope. */
   #activateAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
+      if (contentType === 'text') continue;
       const chosen = this.selectAdaptationSet(contentType, candidates);
       if (chosen) this.activateChild(chosen);
     }
   }
 
-  /** Preload the first adaptation set per content-type simultaneously. */
+  /** Preload the first adaptation set per content-type simultaneously.
+   * Text tracks are excluded for the same reason as #activateAll. */
   #preloadAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
+      if (contentType === 'text') continue;
       const chosen = this.selectAdaptationSet(contentType, candidates);
       if (chosen) this.preloadChild(chosen);
     }
@@ -156,7 +164,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     return html`
       <style>
         :host { display: block; }
-        ::slotted(videl-adaptation-set) { display: none; }
+        ::slotted(videl-adaptation-set) { display: none !important; }
       </style>
       <slot></slot>
       ${this.debug ? html`

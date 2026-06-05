@@ -212,7 +212,7 @@ function renderEntry(entry: LogEntry): void {
     <span class="log-ts">${entry.ts}</span>
     <span class="log-body">
       <span class="log-event ${entry.cls}">${entry.event}</span>
-      <span class="log-source">${entry.source}</span>
+      <!-- <span class="log-source">${entry.source}</span> -->
       ${entry.detail ? `<span class="log-detail">${entry.detail}</span>` : ''}
     </span>`;
 

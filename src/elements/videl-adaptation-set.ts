@@ -228,7 +228,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     return html`
       <style>
         :host { display: block; }
-        ::slotted(videl-representation) { display: none; }
+        ::slotted(videl-representation) { display: none !important; }
       </style>
       <slot></slot>
       ${this.debug ? html`

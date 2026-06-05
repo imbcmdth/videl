@@ -22,6 +22,7 @@
  *   fetch      — network requests for init and media segments
  *   abr        — rendition selection and switches
  *   pump       — pump tick decisions (buffer gating, no-ops)
+ *   timeline   — segment timeline drift tracking and adjustments
  */
 
 export type TraceCategory =
@@ -30,7 +31,8 @@ export type TraceCategory =
   | 'buffer'
   | 'fetch'
   | 'abr'
-  | 'pump';
+  | 'pump'
+  | 'timeline';
 
 export interface TraceDetail {
   category: TraceCategory;

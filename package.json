@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=browser --target=es2020 --outfile=dist/index.js --format=esm && esbuild src/index.ts --bundle --platform=browser --target=es2020 --outfile=dist/index.min.js --format=esm --minify --sourcemap",
-    "build:demo": "esbuild demo/main.ts --bundle --platform=browser --target=es2022 --outfile=demo/dist/bundle.js --format=esm --minify --sourcemap",
+    "build:demo": "esbuild demo/main.ts --bundle --platform=browser --target=es2022 --outfile=demo/dist/bundle.js --format=esm --sourcemap",
     "test": "playwright test"
   },
   "devDependencies": {
