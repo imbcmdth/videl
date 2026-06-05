@@ -445,14 +445,44 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
+    const active = this.getAttribute('videl-state') === 'active';
+    const kbps   = this.bandwidth ? Math.round(this.bandwidth / 1000) : 0;
+    const dims   = this.width && this.height ? `${this.width}×${this.height}` : '';
+    // Primary label prefers resolution; bandwidth is the secondary detail.
+    const primary   = dims || (kbps ? `${kbps} kbps` : (this.repId || 'rep'));
+    const secondary = dims && kbps ? `${kbps} kbps` : '';
+
     return html`
       <style>
-        :host { display: block; }
+        :host { display: block; box-sizing: border-box; }
+        .q {
+          padding: 6px 8px;
+          margin: 1px 0;
+          border-radius: 4px;
+          color: #ddd;
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          cursor: default;
+        }
+        :host([videl-state="active"]) .q {
+          background: rgba(79, 156, 249, 0.25);
+          color: #fff;
+        }
+        .q .detail { color: #9ab; }
         ::slotted(videl-segment) { display: none !important; }
       </style>
+
+      <div class="q">
+        <span>${primary}${active ? ' ✓' : ''}</span>
+        <span class="detail">${secondary}</span>
+      </div>
       <slot></slot>
+
       ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;margin-top:4px">
+        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;margin-top:4px;background:rgba(0,0,0,0.6);color:#fff">
           <strong>videl-representation</strong>
           id=<em>${this.repId}</em>
           bw=<em>${this.bandwidth}</em>

@@ -225,14 +225,54 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
+    const active = this.getAttribute('videl-state') === 'active';
+    // Audio/text adaptation sets present as a single selectable track row.
+    // The label prefers `lang`, falling back to the content type.
+    const label  = this.lang || this.contentType || 'track';
+
     return html`
       <style>
-        :host { display: block; }
+        :host { display: block; box-sizing: border-box; }
+
+        /* ── Track row (audio / text) ─────────────────────────────── */
+        .track {
+          padding: 6px 8px;
+          margin: 1px 0;
+          border-radius: 4px;
+          color: #ddd;
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          cursor: default;
+        }
+        :host([videl-state="active"]) .track {
+          background: rgba(79, 156, 249, 0.25);
+          color: #fff;
+        }
+        /* For video the row is suppressed — the representations ARE the menu. */
+        :host([content-type="video"]) .track { display: none; }
+
+        /*
+         * Representations are technical children: hidden by default. For the
+         * video adaptation set they form the quality list and are revealed.
+         * (important flag for the same ::slotted vs :host cascade reason.)
+         */
         ::slotted(videl-representation) { display: none !important; }
+        :host([content-type="video"]) ::slotted(videl-representation) {
+          display: block !important;
+        }
       </style>
+
+      <div class="track">
+        <span>${label}</span>
+        <span>${active ? '✓' : ''}</span>
+      </div>
       <slot></slot>
+
       ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #8a8;padding:4px;margin-top:4px">
+        <div style="font-family:monospace;font-size:11px;border:1px solid #8a8;padding:4px;margin-top:4px;background:rgba(0,0,0,0.6);color:#fff">
           <strong>videl-adaptation-set</strong>
           type=<em>${this.contentType}</em>
           state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>

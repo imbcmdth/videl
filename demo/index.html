@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="icon" type="image/svg+xml" href="../images/videl-logo.svg" />
+  <link rel="icon" type="image/svg+xml" href="images/videl-logo.svg" />
   <title>Videl Demo</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -75,18 +75,95 @@
       overflow: hidden;
     }
 
-    media-controller {
+    videl-player {
       width: 100%;
       aspect-ratio: 16/9;
+      display: block;
       background: #000;
       border-radius: 6px;
       overflow: hidden;
     }
 
-    videl-player {
+    /* ── Playlist card styles (inactive presentations) ───────────── */
+    /* Cards stack vertically and fill the playlist column width. */
+    videl-presentation {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color .15s, transform .12s;
+      flex: 0 0 auto;
+    }
+    videl-presentation:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    videl-presentation[videl-state="next"] {
+      border-color: #555;
+    }
+    videl-presentation[videl-state="active"] {
+      /* Active presentation becomes the transparent stage overlay (its own
+         shadow CSS handles geometry). Reset card constraints so inset:0 fills
+         the stage fully — the component's own :host rule sets aspect-ratio:auto
+         but the demo rule here also resets it for certainty. */
+      aspect-ratio: auto;
+      width: auto;
+      height: auto;
+      background: transparent;
+      border-color: transparent;
+      border-radius: 0;
+    }
+    /* ── Card inner layout ───────────────────────────────────────── */
+    /* Class-based so the same styling applies to the cloned content inside the
+       player's "now playing" mirror card. */
+    .card-body {
       width: 100%;
       height: 100%;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 8px;
+      box-sizing: border-box;
+      background: linear-gradient(transparent 30%, rgba(0,0,0,0.75));
+      pointer-events: none;
+    }
+    .card-title {
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.3;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .card-sub {
+      color: rgba(255,255,255,0.6);
+      font-size: 10px;
+      margin-top: 2px;
+    }
+    videl-presentation[videl-state="active"] .card-body {
+      display: none; /* active presentation becomes the stage overlay */
+    }
+
+    /* Generated single-stream presentations are invisible as cards
+       (they activate immediately and go full-frame). */
+    videl-presentation[generated] {
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      border: none;
+      pointer-events: none;
+    }
+    videl-presentation[generated][videl-state="active"] {
+      width: auto;
+      height: auto;
+      pointer-events: auto;
     }
 
     /* ── Event log column ────────────────────────────────────────── */
@@ -223,7 +300,7 @@
 <body>
 
 <header>
-  <img src="../images/videl-logo.svg" height="100px" alt="Videl logo" />
+  <img src="images/videl-logo.svg" height="100px" alt="Videl logo" />
   <h1>Videl:</h1>
   <span class="subtitle">DASH adaptive streaming via Web Component abuse</span>
   <span class="spacer"></span>
@@ -247,17 +324,55 @@
 
 <main>
   <div class="player-col">
-    <media-controller id="mc">
-      <videl-player id="player" slot="media"></videl-player>
-      <media-control-bar>
-        <media-play-button></media-play-button>
-        <media-time-range></media-time-range>
-        <media-time-display show-duration></media-time-display>
-        <media-mute-button></media-mute-button>
-        <media-volume-range></media-volume-range>
-        <media-fullscreen-button></media-fullscreen-button>
-      </media-control-bar>
-    </media-controller>
+    <videl-player id="player">
+
+      <!--
+        - Doesn't work at all! 
+        - We don't seem to support this style of segmentbase - where we are expected to append an index to each segment base file -->
+      <videl-presentation
+        src="https://dash.akamaized.net/dash264/TestCases/1a/sony/SNE_DASH_SD_CASE1A_REVISED.mpd">
+        <div class="card-body">
+          <span class="card-title">Sony — SegmentBase</span>
+          <span class="card-sub">ondemand profile · SD</span>
+        </div>
+      </videl-presentation>
+
+      <!--
+        - First period works
+        - Never transitions to second period automatically
+        - Nor does second period work if you seek into it (I think we aren't using timestampoffset to correctly append the second period's segments after the first period's, so the buffer ends up with two overlapping segment timelines)
+        - Audio adaptation set is also incorrectly labeled as video
+      -->
+      <videl-presentation
+        src="https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd">
+        <div class="card-body">
+          <span class="card-title">Nomor — Multi-period</span>
+          <span class="card-sub">2 periods · SegmentTemplate $number</span>
+        </div>
+      </videl-presentation>
+
+      <!--
+       - Works but no audio
+       - Audio adaptation set incorrectly inserted as type="video"
+      -->
+      <videl-presentation
+        src="https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd">
+        <div class="card-body">
+          <span class="card-title">Qualcomm — SegmentTimeline</span>
+          <span class="card-sub">$time template · ondemand profile · multi-res</span>
+        </div>
+      </videl-presentation>
+
+      <!-- Works! -->
+      <videl-presentation
+        src="https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd">
+        <div class="card-body">
+          <span class="card-title">Big Buck Bunny</span>
+          <span class="card-sub">SegmentTemplate/Number · up to 4K@15 Mbps</span>
+        </div>
+      </videl-presentation>
+
+    </videl-player>
   </div>
 
   <div class="log-col">
@@ -278,7 +393,7 @@
 
 <footer>
   <select id="url-select" aria-label="Pre-configured or recent stream URL"></select>
-  <input id="url-input" type="url" placeholder="https://example.com/stream.mpd"
+  <input id="url-input" type="url" placeholder="Load a single MPD URL (overrides playlist)…"
          aria-label="DASH MPD URL" spellcheck="false" autocomplete="off" />
   <button id="load-btn">Load</button>
 </footer>

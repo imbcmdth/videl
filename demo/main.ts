@@ -8,17 +8,6 @@
 // Register videl elements (side-effect imports).
 import '../src/index';
 
-// Register only the media-chrome components used in the demo — importing the
-// full barrel ('media-chrome') pulls in every component and bloats the bundle.
-import 'media-chrome/dist/media-controller.js';
-import 'media-chrome/dist/media-control-bar.js';
-import 'media-chrome/dist/media-play-button.js';
-import 'media-chrome/dist/media-time-range.js';
-import 'media-chrome/dist/media-time-display.js';
-import 'media-chrome/dist/media-mute-button.js';
-import 'media-chrome/dist/media-volume-range.js';
-import 'media-chrome/dist/media-fullscreen-button.js';
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -27,22 +16,33 @@ const LS_KEY     = 'videl-player-demo:urls';
 const MAX_RECENT = 10;
 const MAX_LOG    = 500;
 
+// These match the default playlist declared in index.html plus a few extras
+// useful for testing edge cases. Selecting one replaces the playlist with a
+// single generated stream (the videl-player src-attribute path).
 const PRESET_STREAMS: { label: string; url: string }[] = [
   {
-    label: 'Big Buck Bunny (DASH-IF / Akamai)',
+    label: 'Sony — SegmentBase, ondemand',
+    url:   'https://dash.akamaized.net/dash264/TestCases/1a/sony/SNE_DASH_SD_CASE1A_REVISED.mpd',
+  },
+  {
+    label: 'Big Buck Bunny — SegmentTemplate/Number, up to 4K',
     url:   'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd',
   },
   {
-    label: 'BBC Testcard (DASH-IF / BBC)',
+    label: 'Qualcomm — SegmentTimeline $time, multi-res',
+    url:   'https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd',
+  },
+  {
+    label: 'Nomor — Multi-period (2 periods), SegmentTemplate $number',
+    url:   'https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd',
+  },
+  {
+    label: 'BBC Testcard — multi-language, AVC (VOD)',
     url:   'https://rdmedia.bbc.co.uk/testcard/vod/manifests/avc-full.mpd',
   },
   {
-    label: 'DASH-IF SegmentBase fMP4',
-    url:   'https://dash.akamaized.net/dash264/TestCases/1b/qualcomm/1/MultipleRates.mpd',
-  },
-  {
-    label: 'DASH-IF Live Sim (2 s segments)',
-    url:   'https://livesim.dashif.org/livesim/testpic_2s/Manifest.mpd',
+    label: 'Axinom — 1080p H.264, 5 video + 3 audio + 3 text, CMAF clear',
+    url:   'https://media.axprod.net/TestVectors/Cmaf/clear_1080p_h264/manifest.mpd',
   },
 ];
 

@@ -313,7 +313,7 @@ test('criterion 10 — presentation shadow root has no named state slots', async
 // ===========================================================================
 // Criteria 11–13 — shadow DOM composition
 // ===========================================================================
-test('criteria 11-13 — period children hidden by CSS; user content visible; no slot attr needed', async ({ page }) => {
+test('criteria 11-13 — periods in seek slot as segments; user content in default slot; no slot attr needed on user content', async ({ page }) => {
   const MPD_URL = 'http://localhost:3000/stream/shadow.mpd';
   await page.route(MPD_URL, route =>
     route.fulfill({ contentType: 'application/dash+xml', body: makeMpd('p0', 5) })
@@ -325,36 +325,41 @@ test('criteria 11-13 — period children hidden by CSS; user content visible; no
     pres.setAttribute('src', mpdUrl);
 
     const h3 = document.createElement('h3');
-    h3.textContent = 'My Title'; // no slot attr
+    h3.textContent = 'My Title'; // no slot attr — user content needs none
     pres.appendChild(h3);
 
     document.body.appendChild(pres);
     pres.setAttribute('videl-state', 'next');
     await new Promise<void>(r => setTimeout(r, 600));
 
-    // videl-period should be in composed tree via default slot.
     const period = pres.querySelector('videl-period');
-    const periodDisplay = period
-      ? window.getComputedStyle(period).display
-      : 'not found';
 
-    // The default slot should surface both the period and user content.
-    const slot = pres.shadowRoot?.querySelector('slot:not([name])') as HTMLSlotElement | null;
-    const assigned = slot?.assignedElements({ flatten: true }) ?? [];
+    // Periods self-assign slot="seek" for visual composition (ADR-0002).
+    const periodSlot = period?.getAttribute('slot') ?? '';
+
+    // The default slot surfaces only user content (no slot attr needed).
+    const defaultSlot = pres.shadowRoot?.querySelector('slot:not([name])') as HTMLSlotElement | null;
+    const defaultAssigned = defaultSlot?.assignedElements({ flatten: true }) ?? [];
+
+    // The named seek slot surfaces the period as a seekbar segment.
+    const seekSlot = pres.shadowRoot?.querySelector('slot[name="seek"]') as HTMLSlotElement | null;
+    const seekAssigned = seekSlot?.assignedElements({ flatten: true }) ?? [];
 
     return {
-      periodDisplay,
-      assignedCount: assigned.length,
-      hasH3InAssigned: assigned.some(el => el.tagName.toLowerCase() === 'h3'),
-      hasPeriodInAssigned: assigned.some(el => el.tagName.toLowerCase() === 'videl-period'),
+      periodSlot,
+      hasH3InDefaultSlot:  defaultAssigned.some(el => el.tagName.toLowerCase() === 'h3'),
+      hasPeriodInSeekSlot: seekAssigned.some(el => el.tagName.toLowerCase() === 'videl-period'),
+      hasPeriodInDefault:  defaultAssigned.some(el => el.tagName.toLowerCase() === 'videl-period'),
     };
   }, MPD_URL);
 
-  // videl-period is hidden by ::slotted(videl-period) { display: none }.
-  expect(result.periodDisplay).toBe('none');
-  // Both user content and periods flow through the same default slot.
-  expect(result.hasH3InAssigned).toBe(true);
-  expect(result.hasPeriodInAssigned).toBe(true);
+  // Periods self-assign to the named seek slot for seekbar visual composition.
+  expect(result.periodSlot).toBe('seek');
+  // User content (no slot attr) flows through the default slot.
+  expect(result.hasH3InDefaultSlot).toBe(true);
+  // Period is in the seek slot (rendered as a seekbar segment), not the default slot.
+  expect(result.hasPeriodInSeekSlot).toBe(true);
+  expect(result.hasPeriodInDefault).toBe(false);
 });
 
 // ===========================================================================
@@ -580,7 +585,7 @@ test('criterion 22 — already-populated presentation is not re-fetched on activ
 // ===========================================================================
 // Criterion 24 — player never sets slot attribute on presentations
 // ===========================================================================
-test('criterion 24 — player never sets the slot attribute on presentation children', async ({ page }) => {
+test('criterion 24 — player never uses the slot attribute as a STATE signal on presentations', async ({ page }) => {
   const MPD1 = 'http://localhost:3000/stream/c24a.mpd';
   const MPD2 = 'http://localhost:3000/stream/c24b.mpd';
   for (const url of [MPD1, MPD2]) {
@@ -599,16 +604,20 @@ test('criterion 24 — player never sets the slot attribute on presentation chil
     player.appendChild(p1);
     player.appendChild(p2);
 
-    // Track any slot mutations.
+    // ADR-0002: playback STATE is carried by `videl-state`, never `slot`.
+    // The player MAY set `slot` for pure visual composition (it assigns
+    // slot="stage" to move the active presentation into the video stage), but
+    // it must never use `slot` to encode state values like "active"/"next".
     const slotMutations: string[] = [];
     const obs = new MutationObserver(records => {
       for (const r of records) {
         if (r.type === 'attributes' && r.attributeName === 'slot') {
-          slotMutations.push(`${(r.target as Element).getAttribute('src')}:${(r.target as Element).getAttribute('slot')}`);
+          slotMutations.push((r.target as Element).getAttribute('slot') ?? '(removed)');
         }
       }
     });
-    obs.observe(player, { subtree: true, attributes: true, attributeFilter: ['slot'] });
+    obs.observe(p1, { attributes: true, attributeFilter: ['slot'] });
+    obs.observe(p2, { attributes: true, attributeFilter: ['slot'] });
 
     document.body.appendChild(player);
     await new Promise<void>(r => setTimeout(r, 600));
@@ -617,5 +626,13 @@ test('criterion 24 — player never sets the slot attribute on presentation chil
     return { slotMutations };
   }, { mpd1: MPD1, mpd2: MPD2 });
 
-  expect(result.slotMutations).toHaveLength(0);
+  // Any slot values set must be composition-only ("stage" or removed) — never
+  // state values. State is asserted via videl-state in other tests.
+  const stateValues = result.slotMutations.filter(
+    v => v === 'active' || v === 'next'
+  );
+  expect(stateValues).toHaveLength(0);
+  for (const v of result.slotMutations) {
+    expect(['stage', '(removed)', '']).toContain(v);
+  }
 });

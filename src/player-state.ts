@@ -28,4 +28,10 @@ export interface PlayerState {
    * SourceBuffer reference in the hot path.
    */
   sourceBuffered: ReadonlyMap<string, TimeRanges>;
+  /** Whether the video element is currently paused. Used by presentation controls. */
+  paused: boolean;
+  /** Current volume level (0–1). Used by presentation controls. */
+  volume: number;
+  /** Whether the video element is muted. Used by presentation controls. */
+  muted: boolean;
 }

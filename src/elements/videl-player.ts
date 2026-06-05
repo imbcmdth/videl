@@ -61,6 +61,13 @@ export class VidelPlayer extends HTMLElement {
   #pumpTimer:   ReturnType<typeof setTimeout> | null = null;
   #activePresentation: Element | null = null;
 
+  // ── "Now playing" mirror ──────────────────────────────────────────────────
+  // The active presentation becomes the stage overlay, so it cannot also sit in
+  // the playlist. A single reusable mirror element is moved into the active
+  // presentation's slot position and filled with a clone of its card content.
+
+  #mirror: HTMLElement | null = null;
+
   // ── Bandwidth estimation (EWMA) ───────────────────────────────────────────
 
   #bandwidth = 1_000_000; // optimistic start; real throughput replaces it quickly
@@ -78,14 +85,138 @@ export class VidelPlayer extends HTMLElement {
   constructor() {
     super();
     this.#shadow = this.attachShadow({ mode: 'open' });
+
+    // ── Shadow DOM: two-column layout ────────────────────────────────────────
+    //
+    //   .layout (grid: 1fr | playlist)
+    //     .stage   (col 1)  → <slot name="stage"> + <video>
+    //     .playlist(col 2)  → <slot> (default: cards + now-playing mirror)
+    //   .playlist-toggle (floating)            ← collapse / expand the playlist
+    //
+    // The ACTIVE presentation is assigned slot="stage" by the player, so it
+    // renders inside .stage and its position:absolute overlay is contained by
+    // .stage (covering only the video, never the playlist). Inactive
+    // presentations have no slot attribute and flow as cards in .playlist.
     this.#shadow.innerHTML = `
       <style>
-        :host { display: inline-block; position: relative; }
-        video  { width: 100%; height: 100%; display: block; }
-      </style>`;
+        :host {
+          display: inline-block;
+          position: relative;
+          overflow: hidden;
+          --videl-playlist-width: 260px;
+        }
+        /* Collapsed (user) or unavailable (<2 presentations): no playlist column. */
+        :host([playlist-collapsed]),
+        :host([no-playlist]) {
+          --videl-playlist-width: 0px;
+        }
+        :host([no-playlist]) .playlist-toggle { display: none; }
+
+        .layout {
+          position: absolute;
+          inset: 0;
+          display: grid;
+          grid-template-columns: 1fr var(--videl-playlist-width);
+          /* Fill the full container height; without an explicit row the single
+             auto row would size to the (absolute-only) stage content = 0, and
+             the stage would inherit the playlist cards' height instead. */
+          grid-template-rows: minmax(0, 1fr);
+          transition: grid-template-columns 0.2s ease;
+        }
+        .stage {
+          position: relative;
+          min-width: 0;
+          min-height: 0;
+          overflow: hidden;
+          background: #000;
+        }
+        video {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+        .playlist {
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          background: #0d0d0d;
+          border-left: 1px solid #222;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 8px;
+          box-sizing: border-box;
+        }
+        :host([playlist-collapsed]) .playlist,
+        :host([no-playlist]) .playlist {
+          padding: 0;
+          border-left: none;
+        }
+        /* Cards in the default (playlist) slot. The stage-slotted active
+           presentation is excluded because slotted() can't be matched here for
+           the named slot — its own :host([videl-state=active]) rule governs it. */
+        ::slotted(videl-presentation) {
+          width: 100%;
+          flex: 0 0 auto;
+        }
+        /* "Now playing" mirror card — occupies the active presentation's slot
+           position in the playlist (the real one is the stage overlay). */
+        ::slotted(.videl-now-playing) {
+          position: relative;
+          width: 100%;
+          flex: 0 0 auto;
+          aspect-ratio: 16 / 9;
+          border-radius: 6px;
+          overflow: hidden;
+          border: 2px solid #4f9cf9;
+          background: #000;
+          box-shadow: 0 0 0 1px rgba(79, 156, 249, 0.4);
+        }
+
+        .playlist-toggle {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          z-index: 5;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: none;
+          border-radius: 6px;
+          background: rgba(0, 0, 0, 0.55);
+          color: #fff;
+          cursor: pointer;
+          padding: 0;
+          transition: background 0.12s;
+        }
+        .playlist-toggle:hover { background: rgba(0, 0, 0, 0.8); }
+        .playlist-toggle svg { width: 18px; height: 18px; }
+      </style>
+      <div class="layout">
+        <div class="stage"><slot name="stage"></slot></div>
+        <aside class="playlist"><slot></slot></aside>
+      </div>
+      <button class="playlist-toggle" title="Toggle playlist" aria-label="Toggle playlist">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/>
+          <line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+      </button>`;
 
     this.#video = document.createElement('video');
-      this.#shadow.appendChild(this.#video);
+    this.#shadow.querySelector('.stage')!.appendChild(this.#video);
+
+    this.#shadow.querySelector('.playlist-toggle')!
+      .addEventListener('click', this.#onTogglePlaylist);
 
     for (const name of [
       'play','pause','timeupdate','seeking','seeked','ended',
@@ -98,13 +229,89 @@ export class VidelPlayer extends HTMLElement {
     this.#mutationObserver = new MutationObserver(this.#onMutation);
   }
 
+  /** Toggle the collapsible playlist column. */
+  #onTogglePlaylist = (): void => {
+    this.toggleAttribute('playlist-collapsed');
+  };
+
+  /**
+   * Show the playlist column only when there are at least two presentations to
+   * choose from. Single-stream (`src`) mode and one-item playlists collapse it
+   * (and hide the toggle) so the video uses the full frame.
+   */
+  #refreshPlaylistChrome(): void {
+    const count = this.#childPresentations.length;
+    if (count >= 2) this.removeAttribute('no-playlist');
+    else            this.setAttribute('no-playlist', '');
+  }
+
+  #ensureMirror(): HTMLElement {
+    if (!this.#mirror) {
+      const el = document.createElement('div');
+      el.className = 'videl-now-playing';
+      el.setAttribute('aria-label', 'Now playing');
+      this.#mirror = el;
+    }
+    return this.#mirror;
+  }
+
+  /**
+   * Reflect the active presentation into the playlist via a reusable mirror
+   * card. The active presentation itself is the stage overlay (position
+   * absolute, out of the playlist flow), so the mirror fills its slot position
+   * with a clone of its user content. Moved/refilled whenever the active
+   * presentation changes; removed when there is no active presentation or no
+   * visible playlist.
+   */
+  #updateMirror(): void {
+    const active = this.#activePresentation;
+    // Only mirror when the playlist column is actually visible (≥ 2 items).
+    const show = !!active && this.#childPresentations.length >= 2;
+
+    if (!show) {
+      this.#mirror?.remove();
+      return;
+    }
+
+    const mirror = this.#ensureMirror();
+    mirror.replaceChildren();
+
+    // "Now playing" badge (inline-styled so it needs no external CSS).
+    const badge = document.createElement('div');
+    badge.textContent = '\u25B6 Now Playing';
+    badge.setAttribute('style',
+      'position:absolute;top:6px;left:6px;z-index:2;pointer-events:none;' +
+      'font:600 10px/1 ui-monospace,monospace;color:#fff;' +
+      'background:rgba(79,156,249,0.9);padding:3px 6px;border-radius:4px;');
+    mirror.appendChild(badge);
+
+    // Clone the active presentation's user content (skip technical periods).
+    for (const child of Array.from(active!.children)) {
+      if (child.tagName.toLowerCase() === 'videl-period') continue;
+      mirror.appendChild(child.cloneNode(true));
+    }
+
+    // Place the mirror immediately before the active presentation so it sits at
+    // the active item's position in the playlist order.
+    if (mirror.nextElementSibling !== active) {
+      active!.parentElement?.insertBefore(mirror, active!);
+    }
+  }
+
   // ── Custom-element lifecycle ──────────────────────────────────────────────
 
   connectedCallback(): void {
     this.#mutationObserver.observe(this, { childList: true });
-    this.addEventListener('videl:done',      this.#onVidelDone  as EventListener);
-    this.addEventListener('videl:mse:error', this.#onMseError   as EventListener);
-    this.#video.addEventListener('seeking',  this.#onVideoSeeking);
+    this.addEventListener('videl:done',          this.#onVidelDone    as EventListener);
+    this.addEventListener('videl:mse:error',     this.#onMseError     as EventListener);
+    this.addEventListener('videl:ui:play-pause',  this.#onUiPlayPause  as EventListener);
+    this.addEventListener('videl:ui:seek',        this.#onUiSeek       as EventListener);
+    this.addEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
+    this.addEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
+    this.addEventListener('click',                this.#onPlaylistClick);
+    this.#video.addEventListener('seeking',      this.#onVideoSeeking);
+
+    this.#refreshPlaylistChrome();
 
     const src = this.getAttribute('src');
     if (src) {
@@ -123,9 +330,14 @@ export class VidelPlayer extends HTMLElement {
       pres.removeAttribute('videl-state');
     }
     this.#mutationObserver.disconnect();
-    this.removeEventListener('videl:done',      this.#onVidelDone  as EventListener);
-    this.removeEventListener('videl:mse:error', this.#onMseError   as EventListener);
-    this.#video.removeEventListener('seeking',  this.#onVideoSeeking);
+    this.removeEventListener('videl:done',          this.#onVidelDone    as EventListener);
+    this.removeEventListener('videl:mse:error',     this.#onMseError     as EventListener);
+    this.removeEventListener('videl:ui:play-pause',  this.#onUiPlayPause  as EventListener);
+    this.removeEventListener('videl:ui:seek',        this.#onUiSeek       as EventListener);
+    this.removeEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
+    this.removeEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
+    this.removeEventListener('click',                this.#onPlaylistClick);
+    this.#video.removeEventListener('seeking',      this.#onVideoSeeking);
     this.#teardownMse();
   }
 
@@ -249,6 +461,9 @@ export class VidelPlayer extends HTMLElement {
         old.removeAttribute('videl-state');
         this.removeChild(old);
       }
+      // Mark as auto-generated so consumers can target `videl-presentation[generated]`
+      // in CSS to style (or hide) it differently from declarative playlist cards.
+      presEl.setAttribute('generated', '');
       this.appendChild(presEl);
 
       if (this.hasAttribute('debug')) this.#propagateDebug(true);
@@ -323,7 +538,11 @@ export class VidelPlayer extends HTMLElement {
     if (signal.aborted) return;
 
     presEl.setAttribute('videl-state', 'active');
+    // Move the active presentation into the stage slot so its overlay covers
+    // only the video area, never the playlist column.
+    presEl.setAttribute('slot', 'stage');
     this.#activePresentation = presEl;
+    this.#updateMirror();
 
     trace(this, 'mse', 'setup-complete', {
       sourceBuffers: [...this.#sourceBuffers.keys()],
@@ -337,8 +556,11 @@ export class VidelPlayer extends HTMLElement {
   #teardownPresentation(): void {
     if (this.#activePresentation) {
       this.#activePresentation.removeAttribute('videl-state');
+      // Return it to the default (playlist) slot.
+      this.#activePresentation.removeAttribute('slot');
       this.#activePresentation = null;
     }
+    this.#updateMirror();
   }
 
   #teardownMse(): void {
@@ -392,6 +614,9 @@ export class VidelPlayer extends HTMLElement {
       playbackRate:  Math.max(this.#video.playbackRate, 0.01),
       bufferAhead:   this.#bufferAhead,
       sourceBuffered,
+      paused:        this.#video.paused,
+      volume:        this.#video.volume,
+      muted:         this.#video.muted,
     };
     (this.#activePresentation as any).videlUpdate(state);
   }
@@ -478,6 +703,70 @@ export class VidelPlayer extends HTMLElement {
     }).catch(() => {});
   }
 
+  /**
+   * Click-to-activate: clicking a non-active `<videl-presentation>` card in the
+   * playlist switches playback to it. Clicks originating inside the active
+   * presentation's controls (play/seek/menu) bubble up here too, so we ignore
+   * any click whose target is the active presentation or is not a presentation
+   * card at all.
+   */
+  #onPlaylistClick = (event: Event): void => {
+    const path   = event.composedPath();
+    // Find the nearest videl-presentation in the click path that is a direct
+    // child of this player (a playlist card), if any.
+    const card = path.find(
+      (n): n is Element =>
+        n instanceof Element &&
+        n.tagName.toLowerCase() === 'videl-presentation' &&
+        n.parentElement === this
+    );
+    if (!card) return;                      // not a playlist card click
+    if (card === this.#activePresentation) return; // already playing
+
+    this.#switchToPresentation(card);
+  };
+
+  /**
+   * Tear down the current presentation and activate `target`. Mirrors the
+   * playlist-advance sequence but for an arbitrary user-selected presentation.
+   */
+  #switchToPresentation(target: Element): void {
+    const wasPlaying = !this.#video.paused;
+    const fromSrc    = this.#activePresentation?.getAttribute('src') ?? null;
+
+    trace(this, 'lifecycle', 'playlist-select', {
+      from: fromSrc,
+      to:   target.getAttribute('src') ?? '',
+    });
+
+    // Abort any in-flight activation, then tear down the current stream.
+    this.#loadAbort?.abort();
+    this.#stopPump();
+    this.#teardownPresentation();
+    this.#teardownMse();
+
+    // Clear stale next-state from siblings; prefetch the one after target.
+    for (const pres of this.#childPresentations) {
+      if (pres !== target) pres.removeAttribute('videl-state');
+    }
+    const idx       = this.#childPresentations.indexOf(target);
+    const afterNext = this.#childPresentations[idx + 1];
+    if (afterNext && !afterNext.getAttribute('videl-state')) {
+      afterNext.setAttribute('videl-state', 'next');
+    }
+
+    this.dispatchEvent(new CustomEvent('videl:playlist:advance', {
+      bubbles: true,
+      detail: { from: fromSrc, to: target.getAttribute('src') ?? '', index: idx },
+    }));
+
+    const ctrl      = new AbortController();
+    this.#loadAbort = ctrl;
+    this.#activatePresentation(target, ctrl.signal).then(() => {
+      if (wasPlaying) this.#video.play().catch(() => {});
+    }).catch(() => {});
+  }
+
   #onMseError = (_event: Event): void => {
     const savedTime  = this.#video.currentTime;
     const wasPlaying = !this.#video.paused;
@@ -498,11 +787,40 @@ export class VidelPlayer extends HTMLElement {
     }
   };
 
+  // ── Internal UI event handlers (from presentation controls) ──────────────
+
+  #onUiPlayPause = (): void => {
+    if (this.#video.paused) this.#video.play().catch(() => {});
+    else this.#video.pause();
+  };
+
+  #onUiSeek = (event: Event): void => {
+    const { time } = (event as CustomEvent).detail ?? {};
+    if (typeof time === 'number' && isFinite(time)) this.#seekTo(time);
+  };
+
+  #onUiVolume = (event: Event): void => {
+    const { volume } = (event as CustomEvent).detail ?? {};
+    if (typeof volume === 'number') this.#video.volume = Math.max(0, Math.min(1, volume));
+  };
+
+  #onUiMuteToggle = (): void => {
+    this.#video.muted = !this.#video.muted;
+  };
+
   // ── MutationObserver ──────────────────────────────────────────────────────
 
   #onMutation = (mutations: MutationRecord[]): void => {
     const added = mutations.flatMap(m => [...m.addedNodes])
       .filter((n): n is Element => n instanceof Element);
+    const removed = mutations.flatMap(m => [...m.removedNodes])
+      .filter((n): n is Element => n instanceof Element);
+
+    // Presentation set changed → re-evaluate whether to show the playlist column.
+    const presChanged =
+      added.some(n => n.tagName.toLowerCase() === 'videl-presentation') ||
+      removed.some(n => n.tagName.toLowerCase() === 'videl-presentation');
+    if (presChanged) this.#refreshPlaylistChrome();
 
     // New <videl-presentation> children added while player is idle → start playlist.
     const hasNewPres = added.some(n => n.tagName.toLowerCase() === 'videl-presentation');
