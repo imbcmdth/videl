@@ -168,7 +168,6 @@ export class VidelPlayer extends HTMLElement {
           width: 100%;
           flex: 0 0 auto;
           aspect-ratio: 16 / 9;
-          border-radius: 6px;
           overflow: hidden;
           border: 2px solid #4f9cf9;
           background: #000;
@@ -186,7 +185,6 @@ export class VidelPlayer extends HTMLElement {
           align-items: center;
           justify-content: center;
           border: none;
-          border-radius: 6px;
           background: rgba(0, 0, 0, 0.55);
           color: #fff;
           cursor: pointer;
@@ -282,7 +280,7 @@ export class VidelPlayer extends HTMLElement {
     badge.setAttribute('style',
       'position:absolute;top:6px;left:6px;z-index:2;pointer-events:none;' +
       'font:600 10px/1 ui-monospace,monospace;color:#fff;' +
-      'background:rgba(79,156,249,0.9);padding:3px 6px;border-radius:4px;');
+      'background:rgba(79,156,249,0.9);padding:3px 6px;');
     mirror.appendChild(badge);
 
     // Clone the active presentation's user content (skip technical periods).

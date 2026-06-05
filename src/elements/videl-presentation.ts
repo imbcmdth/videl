@@ -187,6 +187,19 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     ) as Element[];
   }
 
+  /** Check if there are any adaptation sets of a given content type. */
+  #hasContentType(contentType: string): boolean {
+    for (const period of this.#childPeriods) {
+      for (const ads of Array.from(period.children)) {
+        if (ads.tagName.toLowerCase() === 'videl-adaptation-set' &&
+            ads.getAttribute('content-type') === contentType) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   #activateFirstPeriod(): void {
     const first = this.#childPeriods[0];
     if (first) this.activateChild(first);
@@ -472,7 +485,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           width: 100%;
           height: 4px;
           align-items: stretch;
-          border-radius: 2px;
           overflow: visible;
         }
         /* Periods in the seek slot render as seekbar segments.
@@ -540,7 +552,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           color: #fff;
           cursor: pointer;
           padding: 4px;
-          border-radius: 4px;
           line-height: 1;
           flex-shrink: 0;
           transition: background 0.12s;
@@ -604,19 +615,26 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
           <!-- Menu buttons — toggle menu-open on the active period.
                The menu CONTENT is the existing ADS/representation DOM,
-               revealed by CSS. No new nodes are created from data here. -->
-          <button class="ctrl-btn menu-btn ${this.menuOpen === 'audio' ? 'open' : ''}"
-                  @click=${this.#onAudioMenu} title="Audio tracks">
-            ${ICON_AUDIO}
-          </button>
-          <button class="ctrl-btn menu-btn ${this.menuOpen === 'text' ? 'open' : ''}"
-                  @click=${this.#onTextMenu} title="Subtitles / text tracks">
-            ${ICON_CAPTIONS}
-          </button>
-          <button class="ctrl-btn menu-btn ${this.menuOpen === 'quality' ? 'open' : ''}"
-                  @click=${this.#onQualityMenu} title="Video quality">
-            ${ICON_QUALITY}
-          </button>
+               revealed by CSS. No new nodes are created from data here.
+               Buttons are hidden if there are no adaptation sets for that content type. -->
+          ${this.#hasContentType('audio') ? html`
+            <button class="ctrl-btn menu-btn ${this.menuOpen === 'audio' ? 'open' : ''}"
+                    @click=${this.#onAudioMenu} title="Audio tracks">
+              ${ICON_AUDIO}
+            </button>
+          ` : nothing}
+          ${this.#hasContentType('text') ? html`
+            <button class="ctrl-btn menu-btn ${this.menuOpen === 'text' ? 'open' : ''}"
+                    @click=${this.#onTextMenu} title="Subtitles / text tracks">
+              ${ICON_CAPTIONS}
+            </button>
+          ` : nothing}
+          ${this.#hasContentType('video') ? html`
+            <button class="ctrl-btn menu-btn ${this.menuOpen === 'quality' ? 'open' : ''}"
+                    @click=${this.#onQualityMenu} title="Video quality">
+              ${ICON_QUALITY}
+            </button>
+          ` : nothing}
 
           <button class="ctrl-btn" @click=${this.#onMuteToggle}
                   title=${this.muted ? 'Unmute' : 'Mute'}>

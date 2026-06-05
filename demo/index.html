@@ -46,7 +46,6 @@
       gap: 6px;
       padding: 15px 22px;
       border: 1px solid var(--border);
-      border-radius: 6px;
       background: var(--surface);
       color: var(--text);
       font-size: 16px;
@@ -80,7 +79,6 @@
       aspect-ratio: 16/9;
       display: block;
       background: #000;
-      border-radius: 6px;
       overflow: hidden;
     }
 
@@ -92,7 +90,6 @@
       aspect-ratio: 16/9;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
       overflow: hidden;
       cursor: pointer;
       transition: border-color .15s, transform .12s;
@@ -115,7 +112,6 @@
       height: auto;
       background: transparent;
       border-color: transparent;
-      border-radius: 0;
     }
     /* ── Card inner layout ───────────────────────────────────────── */
     /* Class-based so the same styling applies to the cloned content inside the
@@ -187,7 +183,6 @@
     button {
       padding: 3px 10px;
       border: 1px solid var(--border);
-      border-radius: 4px;
       background: transparent;
       color: var(--text);
       cursor: pointer;
@@ -253,7 +248,6 @@
     #url-select {
       padding: 5px 8px;
       border: 1px solid var(--border);
-      border-radius: 4px;
       background: var(--surface);
       color: var(--text);
       font-size: 12px;
@@ -265,7 +259,6 @@
       flex: 1;
       padding: 5px 10px;
       border: 1px solid var(--border);
-      border-radius: 4px;
       background: var(--surface);
       color: var(--text);
       font-size: 12px;
@@ -326,22 +319,17 @@
   <div class="player-col">
     <videl-player id="player">
 
-      <!--
-        - Doesn't work at all! 
-        - We don't seem to support this style of segmentbase - where we are expected to append an index to each segment base file -->
       <videl-presentation
-        src="https://dash.akamaized.net/dash264/TestCases/1a/sony/SNE_DASH_SD_CASE1A_REVISED.mpd">
+        src="https://media.axprod.net/TestVectors/Dash/not_protected_dash_1080p_h264/manifest.mpd">
         <div class="card-body">
-          <span class="card-title">Sony — SegmentBase</span>
-          <span class="card-sub">ondemand profile · SD</span>
+          <span class="card-title">Axinom - Tears of Steel</span>
+          <span class="card-sub">Single-period, 1080p, H.264, 5 video, 3 audio, 3 text tracks, DASH, no encryption</span>
         </div>
       </videl-presentation>
 
       <!--
-        - First period works
-        - Never transitions to second period automatically
-        - Nor does second period work if you seek into it (I think we aren't using timestampoffset to correctly append the second period's segments after the first period's, so the buffer ends up with two overlapping segment timelines)
-        - Audio adaptation set is also incorrectly labeled as video
+        - STILL PENDING: automatic transition to the second period
+          (auto-advance) — deferred.
       -->
       <videl-presentation
         src="https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd">
@@ -351,10 +339,6 @@
         </div>
       </videl-presentation>
 
-      <!--
-       - Works but no audio
-       - Audio adaptation set incorrectly inserted as type="video"
-      -->
       <videl-presentation
         src="https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd">
         <div class="card-body">
@@ -363,7 +347,6 @@
         </div>
       </videl-presentation>
 
-      <!-- Works! -->
       <videl-presentation
         src="https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd">
         <div class="card-body">

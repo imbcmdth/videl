@@ -496,7 +496,7 @@ test('criterion 16 — initialization-url is stamped on every videl-representati
 //   pto=214016, timescale=44100, first S: d=51200 (no t attribute → t=0)
 //   startTime = (0 - 214016) / 44100 ≈ -4.852 s
 // ---------------------------------------------------------------------------
-test('criterion 18 — presentationTimeOffset subtracted before converting t to seconds', async ({ page }) => {
+test('criterion 18 — presentationTimeOffset subtracted, then offset by absolute period start', async ({ page }) => {
   const xml = fixtureXml('multiperiod.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
@@ -508,11 +508,101 @@ test('criterion 18 — presentationTimeOffset subtracted before converting t to 
     const rep    = audioAds.querySelector('videl-representation')!;
     const seg0   = rep.querySelector('videl-segment')!;
     return {
-      startTime: Number(seg0.getAttribute('start-time')),
+      startTime:   Number(seg0.getAttribute('start-time')),
+      periodStart: Number(period3.getAttribute('start')),
     };
   }, xml);
 
-  // pto=214016, timescale=44100 → offset = 214016/44100 ≈ 4.852 s
-  // first S has no t, so t=0 → startTime = (0 - 214016)/44100 ≈ -4.852
-  expect(result.startTime).toBeCloseTo(-214016 / 44100, 3);
+  // Segment start times are absolute presentation time:
+  //   periodStart + (t - pto)/timescale
+  // pto=214016, timescale=44100 → relative offset = -214016/44100 ≈ -4.852 s
+  expect(result.startTime).toBeCloseTo(result.periodStart - 214016 / 44100, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Content-type inference falls back to the Representation when the
+// AdaptationSet has no mimeType/contentType (e.g. nomor multi-period).
+// ---------------------------------------------------------------------------
+test('content-type is inferred from Representation mimeType when AdaptationSet lacks it', async ({ page }) => {
+  const xml = `<?xml version="1.0"?>
+    <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT10S">
+      <Period duration="PT10S">
+        <AdaptationSet segmentAlignment="true">
+          <Representation id="v" mimeType="video/mp4" codecs="avc1.4d401f" bandwidth="1000000">
+            <SegmentTemplate timescale="1000" duration="2000" media="v_$Number$.mp4" startNumber="1" initialization="v_init.mp4"/>
+          </Representation>
+        </AdaptationSet>
+        <AdaptationSet segmentAlignment="true">
+          <Representation id="a" mimeType="audio/mp4" codecs="mp4a.40.2" bandwidth="64000">
+            <SegmentTemplate timescale="1000" duration="2000" media="a_$Number$.mp4" startNumber="1" initialization="a_init.mp4"/>
+          </Representation>
+        </AdaptationSet>
+      </Period>
+    </MPD>`;
+  const types = await page.evaluate(async (xml: string) => {
+    const { parseMpd } = await import('/dist/index.js');
+    const pres = parseMpd(xml, 'https://example.com/');
+    return [...pres.querySelectorAll('videl-adaptation-set')]
+      .map(a => a.getAttribute('content-type'));
+  }, xml);
+
+  expect(types).toEqual(['video', 'audio']);
+});
+
+// ---------------------------------------------------------------------------
+// Periods without @start inherit the cumulative offset of preceding periods.
+// ---------------------------------------------------------------------------
+test('periods without @start get cumulative start times', async ({ page }) => {
+  const xml = `<?xml version="1.0"?>
+    <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT30S">
+      <Period id="0" duration="PT10S"></Period>
+      <Period id="1" duration="PT20S"></Period>
+    </MPD>`;
+  const starts = await page.evaluate(async (xml: string) => {
+    const { parseMpd } = await import('/dist/index.js');
+    const pres = parseMpd(xml, 'https://example.com/');
+    return [...pres.querySelectorAll('videl-period')]
+      .map(p => Number(p.getAttribute('start')));
+  }, xml);
+
+  expect(starts).toEqual([0, 10]);
+});
+
+// ---------------------------------------------------------------------------
+// ISO on-demand profile: a Representation with only a <BaseURL> (no
+// SegmentBase/List/Template) becomes a single self-initializing whole-file
+// segment (no separate init URL).
+// ---------------------------------------------------------------------------
+test('on-demand BaseURL-only Representation yields one self-initializing segment', async ({ page }) => {
+  const xml = `<?xml version="1.0"?>
+    <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"
+         mediaPresentationDuration="PT600S"
+         profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">
+      <Period duration="PT600S" id="P1">
+        <AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.4D401E">
+          <Representation bandwidth="1000000" id="v1" width="854" height="480">
+            <BaseURL>DASH_vodvideo_Track1.m4v</BaseURL>
+          </Representation>
+        </AdaptationSet>
+      </Period>
+    </MPD>`;
+  const result = await page.evaluate(async (xml: string) => {
+    const { parseMpd } = await import('/dist/index.js');
+    const pres = parseMpd(xml, 'https://media.example.com/dir/manifest.mpd');
+    const rep  = pres.querySelector('videl-representation')!;
+    const segs = [...rep.querySelectorAll('videl-segment')];
+    return {
+      hasInitUrl:   rep.hasAttribute('initialization-url'),
+      segCount:     segs.length,
+      segUrl:       segs[0]?.getAttribute('url') ?? null,
+      segStart:     segs[0]?.getAttribute('start-time') ?? null,
+      segDuration:  segs[0]?.getAttribute('duration') ?? null,
+    };
+  }, xml);
+
+  expect(result.segCount).toBe(1);
+  expect(result.hasInitUrl).toBe(false); // self-initializing
+  expect(result.segUrl).toBe('https://media.example.com/dir/DASH_vodvideo_Track1.m4v');
+  expect(result.segStart).toBe('0');
+  expect(result.segDuration).toBe('600');
 });

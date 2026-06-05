@@ -224,7 +224,6 @@ export class VidelPeriod extends PickNMixin(LitElement) {
           display: block;
           height: 100%;
           background: rgba(255, 255, 255, 0.2);
-          border-radius: 2px;
           transition: background 0.15s;
         }
         :host([videl-state="active"]) { background: rgba(255, 255, 255, 0.9); }
@@ -261,7 +260,6 @@ export class VidelPeriod extends PickNMixin(LitElement) {
           overflow-y: auto;
           background: rgba(16, 16, 16, 0.96);
           border: 1px solid rgba(255, 255, 255, 0.18);
-          border-radius: 8px;
           padding: 4px;
           z-index: 4;
           box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);

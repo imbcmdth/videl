@@ -355,7 +355,13 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     if (this.#initAppended) return;
     if (this.#initPromise)  return;
     if (!this.#sourceBuffer) return;
-    if (!this.initializationUrl) return;
+    if (!this.initializationUrl) {
+      // Self-initializing representation (ISO on-demand profile): the single
+      // whole-file segment carries its own moov, so there is no separate init
+      // segment to fetch. Mark init complete so the pump appends it directly.
+      if (this.#childSegments.length > 0) this.#initAppended = true;
+      return;
+    }
 
     trace(this, 'fetch', 'init-fetch-start', { url: this.initializationUrl });
     this.#initController = new AbortController();
@@ -458,7 +464,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
         .q {
           padding: 6px 8px;
           margin: 1px 0;
-          border-radius: 4px;
           color: #ddd;
           font-family: ui-monospace, monospace;
           font-size: 12px;

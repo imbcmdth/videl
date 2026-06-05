@@ -27,6 +27,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     contentType:     { type: String,  attribute: 'content-type' },
     mimeType:        { type: String,  attribute: 'mime-type' },
     codecs:          { type: String },
+    label:           { type: String },
     lang:            { type: String },
     slot:            { type: String,  reflect: true },
     abrSafetyFactor: { type: Number,  attribute: 'abr-safety-factor' },
@@ -36,6 +37,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   contentType     = '';
   mimeType        = '';
   codecs          = '';
+  label           = '';
   lang            = '';
   slot            = '';
   abrSafetyFactor = 0.8;
@@ -227,8 +229,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   render() {
     const active = this.getAttribute('videl-state') === 'active';
     // Audio/text adaptation sets present as a single selectable track row.
-    // The label prefers `lang`, falling back to the content type.
-    const label  = this.lang || this.contentType || 'track';
+    // The label is computed by the parser with priority: Label child element, label attribute, lang attribute, contentType, 'track'
+    const label = this.label || this.contentType || 'track';
 
     return html`
       <style>
@@ -238,7 +240,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         .track {
           padding: 6px 8px;
           margin: 1px 0;
-          border-radius: 4px;
           color: #ddd;
           font-family: ui-monospace, monospace;
           font-size: 12px;
@@ -265,7 +266,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         }
       </style>
 
-      <div class="track">
+      <div class="track" title="${label}" aria-label="${label}">
         <span>${label}</span>
         <span>${active ? '✓' : ''}</span>
       </div>
