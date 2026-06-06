@@ -1,9 +1,14 @@
+import type { ISourceBuffer } from './text-track/i-source-buffer';
+
 /**
  * ManagedSourceBuffer is a promise-based wrapper around the browser's event-driven
  * SourceBuffer API. It serializes concurrent operations internally and surfaces
  * errors as rejected promises.
+ *
+ * Implements ISourceBuffer so it is interchangeable with TextSourceBuffer
+ * throughout the element tree.
  */
-export class ManagedSourceBuffer {
+export class ManagedSourceBuffer implements ISourceBuffer {
   private sourceBuffer: SourceBuffer;
   private queue: Array<{
     kind: 'append' | 'remove' | 'abort' | 'changeType';
@@ -93,6 +98,17 @@ export class ManagedSourceBuffer {
   get buffered(): TimeRanges {
     return this.sourceBuffer.buffered;
   }
+
+  /**
+   * Offset (seconds) added to decoded media timestamps to produce presentation
+   * times. Corresponds to SourceBuffer.timestampOffset.
+   *
+   * Set by videl-representation after the init segment is appended, using the
+   * value stamped on the representation element by the MPD parser:
+   *   timestampOffset = periodStart − presentationTimeOffset / timescale
+   */
+  get timestampOffset(): number { return this.sourceBuffer.timestampOffset; }
+  set timestampOffset(v: number) { this.sourceBuffer.timestampOffset = v; }
 
   private processQueue(): void {
     if (this.isProcessing || this.queue.length === 0) {

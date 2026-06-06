@@ -172,24 +172,18 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   }
 
   /** Activate the first adaptation set per content-type simultaneously.
-   *
-   * Text tracks are intentionally excluded: MSE has no mechanism to render
-   * text from an MP4 container — that requires separate in-band parsing and
-   * injection into the HTMLVideoElement's native TextTrack API, which is
-   * beyond the current scope. */
+   * For text, the first candidate is the "None" ADS injected by the parser —
+   * activating it hides the TextTrack (subtitles off by default). */
   #activateAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
-      if (contentType === 'text') continue;
       const chosen = this.selectAdaptationSet(contentType, candidates);
       if (chosen) this.activateChild(chosen);
     }
   }
 
-  /** Preload the first adaptation set per content-type simultaneously.
-   * Text tracks are excluded for the same reason as #activateAll. */
+  /** Preload the first adaptation set per content-type simultaneously. */
   #preloadAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
-      if (contentType === 'text') continue;
       const chosen = this.selectAdaptationSet(contentType, candidates);
       if (chosen) this.preloadChild(chosen);
     }
@@ -203,34 +197,41 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   }
 
   /**
-   * Handle a user-initiated audio track selection from a videl-adaptation-set
-   * track row. Trims the shared audio SourceBuffer from currentTime forward
-   * (so the new track loads from now, not the end of the old track's buffer)
-   * then activates the new ADS. PickNMixin deactivates the previously active
-   * audio ADS automatically as part of activateChild.
+   * Handle a user-initiated track selection for audio or text adaptation sets.
+   *
+   * For audio: trims the shared SourceBuffer from currentTime forward so the
+   * new language starts loading immediately rather than waiting for the buffer
+   * to drain. PickNMixin deactivates the previously active ADS automatically.
+   *
+   * For text: trims the shared TextSourceBuffer (clears cues from currentTime
+   * forward) then activates the selected ADS, which calls show() or hide() on
+   * the TextTrack via its own attributeChangedCallback.
    */
   #onTrackSelect = (e: Event): void => {
     const newAds = (e as CustomEvent).detail?.ads as Element | undefined;
     if (!(newAds instanceof Element)) return;
     // Only respond to events from direct children of THIS period.
     if (newAds.parentElement !== (this as unknown as HTMLElement)) return;
-    // Only audio tracks are switched this way.
-    if (newAds.getAttribute('content-type') !== 'audio') return;
+
+    const ct = newAds.getAttribute('content-type');
+    if (ct !== 'audio' && ct !== 'text') return;
     // Already active — no-op.
     if (newAds.getAttribute('videl-state') === 'active') return;
 
-    // Trim the audio source buffer from currentTime so the new track's
-    // segments are loaded from the current playhead, not the buffer's end.
-    const currentAudio = this.#childAdaptationSets.find(
-      a => a.getAttribute('content-type') === 'audio' &&
+    // Trim the currently active ADS's source buffer from currentTime so the
+    // new track starts from the playhead rather than the buffer's end.
+    const currentActive = this.#childAdaptationSets.find(
+      a => a.getAttribute('content-type') === ct &&
            a.getAttribute('videl-state') === 'active'
     );
-    const sb = (currentAudio as any)?.sourceBuffer;
+    const sb = (currentActive as any)?.sourceBuffer;
     if (sb) {
       sb.remove(this.#lastCurrentTime, Infinity).catch(() => {});
     }
 
-    // Swap the active audio ADS (PickNMixin handles the deactivation of the old one).
+    // Activate the new ADS. PickNMixin deactivates the previously active one.
+    // For text: VidelAdaptationSet.attributeChangedCallback calls show()/hide()
+    // on the TextSourceBuffer based on the videl-text-none attribute.
     this.activateChild(newAds);
   };
 

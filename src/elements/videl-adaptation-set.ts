@@ -1,7 +1,7 @@
 import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
-import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import type { ISourceBuffer } from '../text-track/i-source-buffer';
 import { trace } from '../trace';
 
 /**
@@ -37,6 +37,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
      * when that representation is removed from the DOM.
      */
     forcedRepId:     { type: String,  attribute: 'forced-rep' },
+    /**
+     * Marks this as the synthetic "None" text adaptation set injected by the
+     * MPD parser. When it becomes active, the shared TextSourceBuffer is
+     * hidden rather than shown. Has no meaning on non-text ADS elements.
+     */
+    videlTextNone:   { type: Boolean, attribute: 'videl-text-none' },
     debug:           { type: Boolean },
   };
 
@@ -48,6 +54,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   slot            = '';
   abrSafetyFactor = 0.8;
   forcedRepId     = '';
+  videlTextNone   = false;
   debug           = false;
 
   /** Last full PlayerState — used for immediate re-selection after rep removal. */
@@ -55,10 +62,10 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
 
-  #sourceBuffer: ManagedSourceBuffer | null = null;
+  #sourceBuffer: ISourceBuffer | null = null;
 
-  get sourceBuffer(): ManagedSourceBuffer | null { return this.#sourceBuffer; }
-  set sourceBuffer(val: ManagedSourceBuffer | null) { this.#sourceBuffer = val; }
+  get sourceBuffer(): ISourceBuffer | null { return this.#sourceBuffer; }
+  set sourceBuffer(val: ISourceBuffer | null) { this.#sourceBuffer = val; }
 
   #activeMimeAndCodecs: string | null = null;
 
@@ -85,14 +92,42 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     if (value === 'active') {
       if (!this.#sourceBuffer) {
-        this.dispatchEvent(
-          new CustomEvent('videl:mse:error', {
-            bubbles: true,
-            composed: true,
-            detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' },
-          })
-        );
+        // The "None" text ADS has no representations and no sourceBuffer until
+        // videl-player assigns it during #setupMse. If it activates before that
+        // (shouldn't happen in normal flow), silently skip — no error needed.
+        if (this.contentType !== 'text' || !this.videlTextNone) {
+          this.dispatchEvent(
+            new CustomEvent('videl:mse:error', {
+              bubbles: true,
+              composed: true,
+              detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' },
+            })
+          );
+        }
         return;
+      }
+      // For text tracks: update the codec classification on the TextSourceBuffer
+      // so the demuxer routes samples correctly for this ADS's format, then
+      // show or hide the TextTrack.
+      if (this.contentType === 'text') {
+        if (this.videlTextNone) {
+          this.#sourceBuffer.hide?.();
+        } else {
+          // Call changeType so the TextSourceBuffer resets its demuxer and
+          // updates its codec class before the new representation appends its
+          // init segment. This is the correct place because the ADS (not the
+          // representation) owns the codec string from the MPD manifest —
+          // and an ADS switch (e.g. English→French) may change the codec.
+          const codecs = this.codecs
+            || (this.#childRepresentations[0] as any)?.codecs
+            || '';
+          const mime   = this.mimeType
+            || (this.#childRepresentations[0] as any)?.mimeType
+            || '';
+          const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
+          if (mimeAndCodecs) this.#sourceBuffer.changeType(mimeAndCodecs);
+          this.#sourceBuffer.show?.();
+        }
       }
       // Distribute SourceBuffer to every child representation before activation.
       for (const rep of this.#childRepresentations) {
@@ -290,8 +325,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * Dispatched as `videl:track:select`.
    */
   #onTrackClick = (): void => {
-    // Only audio tracks are clickable this way; don't re-fire for the active one.
-    if (this.contentType !== 'audio') return;
+    // Audio and text tracks are selectable; video quality uses its own mechanism.
+    if (this.contentType !== 'audio' && this.contentType !== 'text') return;
     if (this.getAttribute('videl-state') === 'active') return;
     this.dispatchEvent(new CustomEvent('videl:track:select', {
       bubbles:  true,
@@ -302,7 +337,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #onSegmentError = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
-    if (this.#sourceBuffer) {
+    if (this.#sourceBuffer && this.contentType !== 'text') {
       this.#sourceBuffer.abort().catch(() => {});
     }
     this.dispatchEvent(
@@ -341,8 +376,9 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
           gap: 8px;
           cursor: default;
         }
-        /* Inactive audio tracks are selectable. */
-        :host([content-type="audio"]:not([videl-state="active"])) .track {
+        /* Inactive audio and text tracks are selectable. */
+        :host([content-type="audio"]:not([videl-state="active"])) .track,
+        :host([content-type="text"]:not([videl-state="active"])) .track {
           cursor: pointer;
         }
         :host([videl-state="active"]) .track {

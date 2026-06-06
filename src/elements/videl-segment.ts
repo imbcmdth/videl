@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from 'lit';
-import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import type { ISourceBuffer } from '../text-track/i-source-buffer';
 import { trace } from '../trace';
 
 /**
@@ -65,7 +65,7 @@ export class VidelSegment extends LitElement {
   slot      = '';
   debug     = false;
 
-  sourceBuffer: ManagedSourceBuffer | null = null;
+  sourceBuffer: ISourceBuffer | null = null;
 
   // ── Internal fetch state ──────────────────────────────────────────────────
 

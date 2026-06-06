@@ -1,5 +1,7 @@
 import { parseMpd } from '../parser/mpd-parser';
 import { ManagedSourceBuffer } from '../managed-source-buffer';
+import { TextSourceBuffer } from '../text-track/text-source-buffer';
+import type { ISourceBuffer } from '../text-track/i-source-buffer';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
 
@@ -52,7 +54,7 @@ export class VidelPlayer extends HTMLElement {
 
   #mediaSource:  MediaSource | null = null;
   #objectUrl:    string | null      = null;
-  #sourceBuffers = new Map<string, ManagedSourceBuffer>();
+  #sourceBuffers = new Map<string, ISourceBuffer>();
 
   // ── Pump state ────────────────────────────────────────────────────────────
 
@@ -526,6 +528,22 @@ export class VidelPlayer extends HTMLElement {
       const codecs    = firstRep?.getAttribute('codecs')     ?? adsCodecs;
       const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
 
+      // Text tracks use a TextSourceBuffer — no real MSE SourceBuffer needed.
+      if (contentType === 'text') {
+        if (this.#sourceBuffers.has('text')) {
+          // Already created for a prior text ADS (including the None ADS).
+          (ads as any).sourceBuffer = this.#sourceBuffers.get('text');
+          continue;
+        }
+        const label = ads.getAttribute('label') ?? ads.getAttribute('lang') ?? 'subtitles';
+        const lang  = ads.getAttribute('lang')  ?? '';
+        trace(this, 'mse', 'add-text-source-buffer', { label, lang, codecs });
+        const tsb   = new TextSourceBuffer(this.#video, label, lang, codecs);
+        this.#sourceBuffers.set('text', tsb);
+        (ads as any).sourceBuffer = tsb;
+        continue;
+      }
+
       if (!mimeAndCodecs || !MediaSource.isTypeSupported(mimeAndCodecs)) {
         console.warn(`[videl-player] unsupported codec for ${contentType}: ${mimeAndCodecs}`);
         continue;
@@ -575,6 +593,21 @@ export class VidelPlayer extends HTMLElement {
   }
 
   #teardownMse(): void {
+    // TextTracks cannot be removed from the video element once added, so
+    // disable and clear cues on any TextSourceBuffer instances before clearing
+    // the map — otherwise stale cues would linger across presentations.
+    for (const [ct, sb] of this.#sourceBuffers) {
+      if (ct === 'text' && sb instanceof TextSourceBuffer) {
+        sb.hide();
+        const cues = sb.textTrack.cues;
+        if (cues) {
+          const list = Array.from(cues);
+          for (const c of list) sb.textTrack.removeCue(c);
+        }
+        sb.textTrack.mode = 'disabled';
+      }
+    }
+
     if (this.#mediaSource) {
       trace(this, 'mse', 'teardown', { readyState: this.#mediaSource.readyState });
       try {
@@ -652,8 +685,9 @@ export class VidelPlayer extends HTMLElement {
     );
     if (dur <= 0) return; // live / unknown duration — never signal EOS
 
-    for (const msb of this.#sourceBuffers.values()) {
-      if (msb.updating) return; // append still in flight — wait for next tick
+    for (const [ct, msb] of this.#sourceBuffers) {
+      if (ct === 'text') continue; // text tracks don't gate MSE endOfStream
+      if (msb.updating) return;   // append still in flight — wait for next tick
       const b = msb.buffered;
       if (b.length === 0 || b.end(b.length - 1) < dur - 0.5) return;
     }

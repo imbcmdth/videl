@@ -1,7 +1,7 @@
 import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
-import type { ManagedSourceBuffer } from '../managed-source-buffer';
+import type { ISourceBuffer } from '../text-track/i-source-buffer';
 import { trace } from '../trace';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +94,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     mimeType:                { type: String,  attribute: 'mime-type' },
     initializationUrl:       { type: String,  attribute: 'initialization-url' },
     initializationByteRange: { type: String,  attribute: 'initialization-byte-range' },
+    /**
+     * Presentation-time offset stamped by the MPD parser:
+     *   timestampOffset = periodStart − presentationTimeOffset / timescale
+     * Applied to SourceBuffer.timestampOffset after the init segment is appended
+     * to align the media decode timeline with the MSE presentation timeline.
+     * Absent (default 0) when @presentationTimeOffset is zero or not specified.
+     */
+    timestampOffset:         { type: Number,  attribute: 'timestamp-offset' },
     slot:                    { type: String,  reflect: true },
     /** Set by the parent adaptation-set when this rep is manually pinned. */
     pinned:                  { type: Boolean },
@@ -108,17 +116,18 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   mimeType                 = '';
   initializationUrl        = '';
   initializationByteRange: string | null = null;
+  timestampOffset          = 0;
   slot                     = '';
   pinned                   = false;
   debug                    = false;
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
 
-  #sourceBuffer: ManagedSourceBuffer | null = null;
+  #sourceBuffer: ISourceBuffer | null = null;
 
-  get sourceBuffer(): ManagedSourceBuffer | null { return this.#sourceBuffer; }
+  get sourceBuffer(): ISourceBuffer | null { return this.#sourceBuffer; }
 
-  set sourceBuffer(val: ManagedSourceBuffer | null) {
+  set sourceBuffer(val: ISourceBuffer | null) {
     if (val === this.#sourceBuffer) return;
     this.#initController?.abort();
     this.#initController = null;
@@ -400,6 +409,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       .then(() => {
         this.#initAppended = true;
         trace(this, 'buffer', 'init-append-complete', { url: this.initializationUrl });
+        // Apply presentation-time offset so the SourceBuffer (real or fake)
+        // maps media decode times to the correct MSE timeline position.
+        if (this.#sourceBuffer && this.timestampOffset !== 0) {
+          this.#sourceBuffer.timestampOffset = this.timestampOffset;
+        }
       })
       .catch((err: unknown) => {
         if (this.getAttribute('videl-state') === null) return;

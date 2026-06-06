@@ -10,3 +10,11 @@ export { VidelPresentation } from './elements/videl-presentation';
 export { VidelPlayer } from './elements/videl-player';
 export { parseMpd, ParseError, parseDuration } from './parser/mpd-parser';
 export type { TraceCategory, TraceDetail } from './trace';
+// Text track support
+export type { ISourceBuffer } from './text-track/i-source-buffer';
+export type { TextCodecClass } from './text-track/text-codec';
+export { classifyTextCodec, classifyTextMimeAndCodecs } from './text-track/text-codec';
+export { TextSourceBuffer } from './text-track/text-source-buffer';
+export { SyntheticTimeRanges } from './text-track/synthetic-time-ranges';
+export { Fmp4TextDemuxer } from './text-track/fmp4-text-demuxer';
+export type { TextSample, TextContainerCodec } from './text-track/fmp4-text-demuxer';

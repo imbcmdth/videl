@@ -109,7 +109,7 @@ test('criterion 1 — video and audio adaptation sets are both activated on slot
 // ===========================================================================
 // Criterion 2 — text track also activated when present
 // ===========================================================================
-test('criterion 2 — video and audio are activated; text is skipped (MSE cannot render text tracks)', async ({ page }) => {
+test('criterion 2 — video, audio, and text adaptation sets are all activated', async ({ page }) => {
   const result = await page.evaluate(async () => {
     await import('/dist/index.js');
 
@@ -133,7 +133,12 @@ test('criterion 2 — video and audio are activated; text is skipped (MSE cannot
 
   expect(result[0]).toBe('active'); // video — activated
   expect(result[1]).toBe('active'); // audio — activated
-  expect(result[2]).toBeNull();     // text  — skipped; MSE cannot render MP4-encapsulated text
+  // Text adaptation sets are now activated via TextSourceBuffer — no MSE skip.
+  // Note: the text ADS here has no sourceBuffer assigned (no videl-player in
+  // this isolated test), so activation triggers a missing-sourceBuffer error
+  // event and the ADS is left active with the error bubbling. The key assertion
+  // is that the period no longer skips text — it attempts activation.
+  expect(result[2]).toBe('active');
 });
 
 // ===========================================================================

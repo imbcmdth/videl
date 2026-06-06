@@ -134,6 +134,13 @@ function buildPeriod(
     }));
   }
 
+  // If this period has any text adaptation sets, inject a synthetic "None" ADS
+  // as the first text candidate so that subtitles are off by default.
+  const firstTextAds = el.querySelector('videl-adaptation-set[content-type="text"]');
+  if (firstTextAds) {
+    el.insertBefore(buildNoneTextAds(), firstTextAds);
+  }
+
   // Advance the cursor: next period starts where this one ends (if known).
   const nextStart = periodDuration !== undefined ? start + periodDuration : start;
   return { el, nextStart };
@@ -212,6 +219,25 @@ function buildAdaptationSet(
   return el;
 }
 
+/**
+ * Build the synthetic "None" adaptation set injected as the first text ADS
+ * in each period that contains text adaptation sets.
+ *
+ * The "None" ADS:
+ *   - has content-type="text" so PickNMixin keys it correctly
+ *   - has videl-text-none="" so VidelAdaptationSet hides the TextTrack on activation
+ *   - has label="None" for the subtitle menu row
+ *   - has NO representations — it is intentionally inert as a data source
+ *   - is activated first by default (candidates[0] in selectAdaptationSet)
+ */
+function buildNoneTextAds(): HTMLElement {
+  const el = document.createElement('videl-adaptation-set');
+  el.setAttribute('content-type',   'text');
+  el.setAttribute('videl-text-none', '');
+  el.setAttribute('label',          'None');
+  return el;
+}
+
 // ---------------------------------------------------------------------------
 // Representation → <videl-representation>
 // ---------------------------------------------------------------------------
@@ -276,6 +302,17 @@ function buildSegments(
   }
 ): void {
   const { base, st, parentSL, periodStart, periodDuration, id, bandwidth } = ctx;
+
+  // Stamp timestamp-offset = periodStart - pto/timescale on the representation
+  // element so videl-representation can set SourceBuffer.timestampOffset after
+  // the init segment is appended. This corrects presentation-time alignment for
+  // any stream with a non-zero @presentationTimeOffset, for all content types.
+  if (st) {
+    const tsOffset = periodStart - (st.pto ?? 0) / (st.timescale ?? 1);
+    if (tsOffset !== 0) {
+      repEl.setAttribute('timestamp-offset', String(tsOffset));
+    }
+  }
 
   // Priority: SegmentBase > SegmentList > SegmentTemplate (inherited or local)
   const sb = child(rep, 'SegmentBase');
