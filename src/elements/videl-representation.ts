@@ -95,6 +95,8 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     initializationUrl:       { type: String,  attribute: 'initialization-url' },
     initializationByteRange: { type: String,  attribute: 'initialization-byte-range' },
     slot:                    { type: String,  reflect: true },
+    /** Set by the parent adaptation-set when this rep is manually pinned. */
+    pinned:                  { type: Boolean },
     debug:                   { type: Boolean },
   };
 
@@ -107,6 +109,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   initializationUrl        = '';
   initializationByteRange: string | null = null;
   slot                     = '';
+  pinned                   = false;
   debug                    = false;
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
@@ -351,6 +354,34 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     ) as any[];
   }
 
+  // ── User interaction ──────────────────────────────────────────────────────
+
+  /**
+   * Left-click: pin this representation, disabling ABR.
+   * The parent adaptation-set catches `videl:rep:select`.
+   */
+  #onClick = (): void => {
+    this.dispatchEvent(new CustomEvent('videl:rep:select', {
+      bubbles:  true,
+      composed: true,
+      detail:   { rep: this },
+    }));
+  };
+
+  /**
+   * Right-click: remove this representation from the available pool.
+   * preventDefault suppresses the browser context menu.
+   * The parent adaptation-set catches `videl:rep:remove`.
+   */
+  #onContextMenu = (e: MouseEvent): void => {
+    e.preventDefault();
+    this.dispatchEvent(new CustomEvent('videl:rep:remove', {
+      bubbles:  true,
+      composed: true,
+      detail:   { rep: this },
+    }));
+  };
+
   #startInit(): void {
     if (this.#initAppended) return;
     if (this.#initPromise)  return;
@@ -470,18 +501,24 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
           display: flex;
           justify-content: space-between;
           gap: 10px;
-          cursor: default;
+          cursor: pointer;
+          user-select: none;
         }
         :host([videl-state="active"]) .q {
           background: rgba(79, 156, 249, 0.25);
           color: #fff;
         }
+        /* Pinned (ABR disabled, this rep is forced): accent left border. */
+        :host([pinned]) .q {
+          border-left: 2px solid #4f9cf9;
+          padding-left: 6px;
+        }
         .q .detail { color: #9ab; }
         ::slotted(videl-segment) { display: none !important; }
       </style>
 
-      <div class="q">
-        <span>${primary}${active ? ' ✓' : ''}</span>
+      <div class="q" @click=${this.#onClick} @contextmenu=${this.#onContextMenu}>
+        <span>${primary}${active ? ' ✓' : ''}${this.pinned ? ' ⚲' : ''}</span>
         <span class="detail">${secondary}</span>
       </div>
       <slot></slot>

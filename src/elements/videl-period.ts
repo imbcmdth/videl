@@ -45,6 +45,8 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   menuOpen: string | null = null;
 
   #doneEmitted = false;
+  /** Last currentTime seen by videlUpdate — needed by track-select handler. */
+  #lastCurrentTime = 0;
 
   // ── Custom element lifecycle ──────────────────────────────────────────────
 
@@ -60,6 +62,12 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       // Also apply flex-grow immediately (before first Lit render).
       this.#applyFlexGrow();
     }
+    this.addEventListener('videl:track:select', this.#onTrackSelect as EventListener);
+  }
+
+  disconnectedCallback(): void {
+    this.removeEventListener('videl:track:select', this.#onTrackSelect as EventListener);
+    super.disconnectedCallback?.();
   }
 
   /** Set flex-grow on the host element to match the period duration. */
@@ -100,6 +108,8 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    */
   videlUpdate(state: PlayerState): void {
     if (this.getAttribute('videl-state') !== 'active') return;
+
+    this.#lastCurrentTime = state.currentTime;
 
     // Fan out to all active adaptation sets.
     for (const ads of this.#activeAdaptationSets) {
@@ -191,6 +201,38 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   getSlotKey(child: Element): string {
     return child.getAttribute('content-type') ?? 'video';
   }
+
+  /**
+   * Handle a user-initiated audio track selection from a videl-adaptation-set
+   * track row. Trims the shared audio SourceBuffer from currentTime forward
+   * (so the new track loads from now, not the end of the old track's buffer)
+   * then activates the new ADS. PickNMixin deactivates the previously active
+   * audio ADS automatically as part of activateChild.
+   */
+  #onTrackSelect = (e: Event): void => {
+    const newAds = (e as CustomEvent).detail?.ads as Element | undefined;
+    if (!(newAds instanceof Element)) return;
+    // Only respond to events from direct children of THIS period.
+    if (newAds.parentElement !== (this as unknown as HTMLElement)) return;
+    // Only audio tracks are switched this way.
+    if (newAds.getAttribute('content-type') !== 'audio') return;
+    // Already active — no-op.
+    if (newAds.getAttribute('videl-state') === 'active') return;
+
+    // Trim the audio source buffer from currentTime so the new track's
+    // segments are loaded from the current playhead, not the buffer's end.
+    const currentAudio = this.#childAdaptationSets.find(
+      a => a.getAttribute('content-type') === 'audio' &&
+           a.getAttribute('videl-state') === 'active'
+    );
+    const sb = (currentAudio as any)?.sourceBuffer;
+    if (sb) {
+      sb.remove(this.#lastCurrentTime, Infinity).catch(() => {});
+    }
+
+    // Swap the active audio ADS (PickNMixin handles the deactivation of the old one).
+    this.activateChild(newAds);
+  };
 
   // ── Lit render ────────────────────────────────────────────────────────────
 

@@ -31,6 +31,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     lang:            { type: String },
     slot:            { type: String,  reflect: true },
     abrSafetyFactor: { type: Number,  attribute: 'abr-safety-factor' },
+    /**
+     * When set, ABR is disabled and this representation ID is always selected.
+     * Set by a left-click on a video representation row; cleared automatically
+     * when that representation is removed from the DOM.
+     */
+    forcedRepId:     { type: String,  attribute: 'forced-rep' },
     debug:           { type: Boolean },
   };
 
@@ -41,7 +47,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   lang            = '';
   slot            = '';
   abrSafetyFactor = 0.8;
+  forcedRepId     = '';
   debug           = false;
+
+  /** Last full PlayerState — used for immediate re-selection after rep removal. */
+  #lastState: PlayerState | null = null;
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
 
@@ -57,10 +67,14 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   connectedCallback(): void {
     super.connectedCallback?.();
     this.addEventListener('videl:segment:error', this.#onSegmentError);
+    this.addEventListener('videl:rep:select',    this.#onRepSelect as EventListener);
+    this.addEventListener('videl:rep:remove',    this.#onRepRemove as EventListener);
   }
 
   disconnectedCallback(): void {
     this.removeEventListener('videl:segment:error', this.#onSegmentError);
+    this.removeEventListener('videl:rep:select',    this.#onRepSelect as EventListener);
+    this.removeEventListener('videl:rep:remove',    this.#onRepRemove as EventListener);
     super.disconnectedCallback?.();
   }
 
@@ -94,6 +108,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   videlUpdate(state: PlayerState): void {
     if (this.getAttribute('videl-state') !== 'active') return;
+
+    this.#lastState = state;
 
     const target  = this.#selectRepresentation(state.bandwidth, state.playbackRate);
     if (!target) return;
@@ -129,6 +145,14 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   #selectRepresentation(bandwidth: number, playbackRate: number): Element | null {
     const reps = this.#childRepresentations;
     if (reps.length === 0) return null;
+
+    // Forced / pinned rep: bypass ABR.
+    if (this.forcedRepId) {
+      const forced = reps.find(r => r.getAttribute('id') === this.forcedRepId);
+      if (forced) return forced;
+      // Forced rep was removed — clear the pin and fall through to ABR.
+      this.removeAttribute('forced-rep');
+    }
 
     const target = bandwidth * this.abrSafetyFactor / Math.max(playbackRate, 0.01);
 
@@ -207,6 +231,75 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     if (active) (active as any).videlUpdate(state);
   }
 
+  /** Stamp / remove the `pinned` attribute on representations to match forcedRepId. */
+  #updatePinnedAttrs(): void {
+    for (const rep of this.#childRepresentations) {
+      const isForced = rep.getAttribute('id') === this.forcedRepId && !!this.forcedRepId;
+      if (isForced) rep.setAttribute('pinned', '');
+      else          rep.removeAttribute('pinned');
+    }
+  }
+
+  /**
+   * Left-click on a video representation: pin it and switch immediately.
+   * Dispatched as `videl:rep:select` by the representation's click handler.
+   */
+  #onRepSelect = (e: Event): void => {
+    const rep = (e as CustomEvent).detail?.rep as Element | undefined;
+    if (!(rep instanceof Element)) return;
+    if (!this.#childRepresentations.includes(rep)) return;
+
+    const repId = rep.getAttribute('id') ?? '';
+    this.setAttribute('forced-rep', repId); // triggers Lit update + stores forcedRepId
+    this.#updatePinnedAttrs();
+
+    // If active, switch immediately rather than waiting for the next pump tick.
+    if (this.getAttribute('videl-state') === 'active') {
+      const current = this.#activeRepresentation;
+      if (current !== rep) this.#performSwitch(rep, current);
+    }
+  };
+
+  /**
+   * Middle-click on a video representation: remove it from the DOM.
+   * If it was the forced rep, clear the pin. If it was active, re-run
+   * selection immediately using the last known player state.
+   * Dispatched as `videl:rep:remove` by the representation's auxclick handler.
+   */
+  #onRepRemove = (e: Event): void => {
+    const rep = (e as CustomEvent).detail?.rep as Element | undefined;
+    if (!(rep instanceof Element)) return;
+    if (!this.#childRepresentations.includes(rep)) return;
+
+    const wasActive = rep.getAttribute('videl-state') === 'active';
+    const wasForced = rep.getAttribute('id') === this.forcedRepId;
+
+    rep.remove();
+    if (wasForced) this.removeAttribute('forced-rep');
+    this.#updatePinnedAttrs();
+
+    // Re-run ABR immediately so there is no gap if the active rep was removed.
+    if (wasActive && this.getAttribute('videl-state') === 'active' && this.#lastState) {
+      this.videlUpdate(this.#lastState);
+    }
+  };
+
+  /**
+   * Left-click on an audio track row: let the parent period handle the
+   * switch (it needs to trim the source buffer before activating the new ADS).
+   * Dispatched as `videl:track:select`.
+   */
+  #onTrackClick = (): void => {
+    // Only audio tracks are clickable this way; don't re-fire for the active one.
+    if (this.contentType !== 'audio') return;
+    if (this.getAttribute('videl-state') === 'active') return;
+    this.dispatchEvent(new CustomEvent('videl:track:select', {
+      bubbles:  true,
+      composed: true,
+      detail:   { ads: this },
+    }));
+  };
+
   #onSegmentError = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
     if (this.#sourceBuffer) {
@@ -248,6 +341,10 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
           gap: 8px;
           cursor: default;
         }
+        /* Inactive audio tracks are selectable. */
+        :host([content-type="audio"]:not([videl-state="active"])) .track {
+          cursor: pointer;
+        }
         :host([videl-state="active"]) .track {
           background: rgba(79, 156, 249, 0.25);
           color: #fff;
@@ -266,7 +363,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         }
       </style>
 
-      <div class="track" title="${label}" aria-label="${label}">
+      <div class="track" title="${label}" aria-label="${label}"
+           @click=${this.#onTrackClick}>
         <span>${label}</span>
         <span>${active ? '✓' : ''}</span>
       </div>
