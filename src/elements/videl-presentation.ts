@@ -7,6 +7,7 @@ import {
   ICON_PLAY, ICON_PAUSE,
   ICON_VOLUME, ICON_MUTE,
   ICON_AUDIO, ICON_CAPTIONS, ICON_QUALITY,
+  ICON_FULLSCREEN, ICON_FULLSCREEN_EXIT,
 } from '../icons';
 
 /**
@@ -72,6 +73,8 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     muted:                     { type: Boolean, attribute: false },
     // Which informational menu the control bar has open (drives the active period).
     menuOpen:                  { type: String,  attribute: false },
+    // Mirrors document.fullscreenElement so the icon toggles reactively.
+    fullscreen:                { type: Boolean, attribute: false },
   };
 
   src                        = '';
@@ -93,6 +96,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   /** Which informational menu is open: `'audio' | 'text' | 'quality' | null`. */
   menuOpen: string | null = null;
 
+  /** True while this presentation is the fullscreen element. */
+  fullscreen = false;
+
   #fetchController: AbortController | null = null;
   #populated                               = false;
   #populatePromise: Promise<void> | null   = null;
@@ -102,11 +108,13 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener('videl:done', this.#onPeriodDone);
+    document.addEventListener('fullscreenchange', this.#onFullscreenChange);
   }
 
   disconnectedCallback(): void {
     this.removeEventListener('videl:done', this.#onPeriodDone);
     document.removeEventListener('pointerdown', this.#onDocPointerDown, true);
+    document.removeEventListener('fullscreenchange', this.#onFullscreenChange);
     super.disconnectedCallback();
   }
 
@@ -394,6 +402,24 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   #onTextMenu    = (e: Event): void => this.#toggleMenu('text', e);
   #onQualityMenu = (e: Event): void => this.#toggleMenu('quality', e);
 
+  #onFullscreenToggle = (): void => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      // Fullscreen the player element so the playlist column is included.
+      const player = this.closest('videl-player') ?? (this as unknown as Element);
+      player.requestFullscreen().catch(() => {});
+    }
+  };
+
+  #onFullscreenChange = (): void => {
+    const player = this.closest('videl-player');
+    this.fullscreen = player
+      ? document.fullscreenElement === player
+      : document.fullscreenElement !== null;
+    (this as unknown as LitElement).requestUpdate();
+  };
+
   // ── UI helpers ────────────────────────────────────────────────────────────
 
   #formatTime(s: number): string {
@@ -418,23 +444,104 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           box-sizing: border-box;
         }
 
+        /* ── Card form (inactive / prefetching) ──────────────────── */
+        /*
+         * When NOT the active stage overlay, a presentation renders as a
+         * playlist card: a 16:9 box that clips its content.
+         *
+         * CRITICAL: the card aspect-ratio and background are applied ONLY in
+         * this state, via :not([videl-state="active"]). They are NOT set on the
+         * base :host and then overridden — that would let an opaque background
+         * or a fixed ratio leak onto the active overlay if the override were
+         * ever dropped. Scoping here makes the transparent, full-bleed active
+         * state structurally guaranteed.
+         *
+         * Colours are themeable via custom properties; the defaults match the
+         * dark surface used by the demo so no host stylesheet is required.
+         */
+        :host(:not([videl-state="active"])) {
+          aspect-ratio: 16 / 9;
+          overflow: hidden;
+          cursor: pointer;
+          background: var(--videl-card-bg, #1a1a1a);
+          border: 1px solid var(--videl-card-border, #333);
+          transition: border-color 0.15s, transform 0.12s;
+        }
+        /* Prefetching card: subtly highlighted border. */
+        :host([videl-state="next"]) {
+          border-color: #555;
+        }
+        /* Hover affordance for selectable cards — never the active overlay. */
+        :host(:not([videl-state="active"]):hover) {
+          border-color: var(--videl-accent, #4f9cf9);
+          transform: translateY(-1px);
+        }
+
+        /*
+         * Generated single-stream presentations are never shown as cards — they
+         * activate immediately and fill the stage. Collapse to nothing while
+         * inactive so they occupy no space in the playlist. (This wins over the
+         * player's ::slotted(videl-presentation){width:100%} because an
+         * element's own :host outranks a containing shadow's ::slotted.)
+         */
+        :host([generated]:not([videl-state="active"])) {
+          width: 0;
+          height: 0;
+          overflow: hidden;
+          border: none;
+          pointer-events: none;
+        }
+
         /* ── Active: transparent overlay over the video stage ───── */
         /*
          * The player assigns slot="stage" to the active presentation, so this
          * overlay is contained by the player's .stage element and covers only
-         * the video — never the playlist column.
+         * the video — never the playlist column. Because the card rules above
+         * are scoped to :not([videl-state="active"]), the active host inherits
+         * neither a card background nor a card aspect-ratio: it is transparent
+         * and fills the stage exactly (insets determine size).
          */
         :host([videl-state="active"]) {
           position: absolute;
           inset: 0;
           width: auto;
           height: auto;
-          /* Cancel any card aspect-ratio a consumer set for the playlist view;
-             when active we must fill the stage exactly (insets determine size),
-             otherwise aspect-ratio would shrink the height and lift the controls. */
-          aspect-ratio: auto;
           z-index: 2;
           background: transparent;
+        }
+
+        /* ── Card content frame (inactive only) ──────────────────── */
+        /*
+         * Frames the consumer's light-DOM content (projected through the
+         * default slot) as a playlist card: a bottom gradient with content
+         * bottom-aligned and rendered white. Consumers write plain semantic
+         * tags and need NO CSS classes — e.g. <strong> for the title and
+         * <small> for a subtitle. The tags' intrinsic weight/size provide the
+         * visual hierarchy and colour/font are inherited from the frame, so the
+         * card looks identical when the player clones this content into its
+         * "now playing" mirror (which mirrors these rules via
+         * ::slotted(.videl-now-playing) and reaches the clones only by
+         * inheritance). Hidden when active — the video + controls take over.
+         */
+        .card-frame {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          gap: 2px;
+          padding: 8px;
+          box-sizing: border-box;
+          background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75));
+          color: #fff;
+          font-family: ui-monospace, monospace;
+          font-size: 11px;
+          line-height: 1.3;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+          pointer-events: none;
+        }
+        :host([videl-state="active"]) .card-frame {
+          display: none;
         }
 
         /* ── Click zone (play/pause) — covers video area above bar ─ */
@@ -451,6 +558,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
         }
 
         /* ── Controls bar (active only) ─────────────────────────── */
+        /*
+         * Hidden via display:none when not active. While active, opacity
+         * (not display) is used to hide/show so CSS transitions work.
+         * pointer-events mirrors opacity so inactive controls aren't clickable.
+         */
         .controls {
           display: none;
           flex-direction: column;
@@ -460,9 +572,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           padding: 8px 12px 10px;
           background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
           box-sizing: border-box;
+          opacity: 1;
+          transition: opacity 0.3s;
         }
         :host([videl-state="active"]) .controls {
           display: flex;
+        }
+        :host([videl-state="active"][user-inactive]) .controls {
+          opacity: 0;
+          pointer-events: none;
+        }
+        :host([videl-state="active"][user-inactive]) .click-zone {
+          cursor: none;
         }
 
         /* ── Seekbar row ─────────────────────────────────────────── */
@@ -574,8 +695,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
         .spacer { flex: 1; }
       </style>
 
-      <!-- User light-DOM content (poster image, title, etc.) -->
-      <slot></slot>
+      <!-- User light-DOM content (title/subtitle, poster, etc.), framed as a
+           playlist card while inactive. Consumers use plain semantic tags
+           (e.g. <strong> for the title, <small> for a subtitle) — no CSS
+           classes required; the frame positions and colours them. -->
+      <div class="card-frame"><slot></slot></div>
 
       <!-- Click zone: covers the video area above the controls bar -->
       <div class="click-zone" @click=${this.#onClickZone}></div>
@@ -650,6 +774,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
             .value=${String(this.muted ? 0 : this.volume)}
             @input=${this.#onVolumeInput}
           />
+
+          <button class="ctrl-btn" @click=${this.#onFullscreenToggle}
+                  title=${this.fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+            ${this.fullscreen ? ICON_FULLSCREEN_EXIT : ICON_FULLSCREEN}
+          </button>
         </div>
       </div>
 

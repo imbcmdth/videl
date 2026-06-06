@@ -68,6 +68,16 @@ export class VidelPlayer extends HTMLElement {
 
   #mirror: HTMLElement | null = null;
 
+  // ── User-inactivity detection ─────────────────────────────────────────────
+  // When the player has an active presentation, a 5-second idle timer runs.
+  // Expiry (or pointer leaving the player) sets the `user-inactive` attribute
+  // on the player and on the active presentation; any pointer activity clears
+  // it. CSS in both shadows responds to the attribute to hide controls and
+  // collapse the playlist column.
+
+  static readonly #INACTIVITY_MS = 3_000;
+  #inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Bandwidth estimation (EWMA) ───────────────────────────────────────────
 
   #bandwidth = 1_000_000; // optimistic start; real throughput replaces it quickly
@@ -91,18 +101,22 @@ export class VidelPlayer extends HTMLElement {
     //   .layout (grid: 1fr | playlist)
     //     .stage   (col 1)  → <slot name="stage"> + <video>
     //     .playlist(col 2)  → <slot> (default: cards + now-playing mirror)
-    //   .playlist-toggle (floating)            ← collapse / expand the playlist
     //
     // The ACTIVE presentation is assigned slot="stage" by the player, so it
     // renders inside .stage and its position:absolute overlay is contained by
     // .stage (covering only the video, never the playlist). Inactive
     // presentations have no slot attribute and flow as cards in .playlist.
+    // The playlist column collapses automatically via the user-inactivity
+    // mechanism — there is no manual toggle button.
     this.#shadow.innerHTML = `
       <style>
         :host {
           display: inline-block;
           position: relative;
           overflow: hidden;
+          /* Fundamental stage background: the video area is black before/behind
+             frames. Consumers can override on the host element if desired. */
+          background: #000;
           --videl-playlist-width: 260px;
         }
         /* Collapsed (user) or unavailable (<2 presentations): no playlist column. */
@@ -110,8 +124,6 @@ export class VidelPlayer extends HTMLElement {
         :host([no-playlist]) {
           --videl-playlist-width: 0px;
         }
-        :host([no-playlist]) .playlist-toggle { display: none; }
-
         .layout {
           position: absolute;
           inset: 0;
@@ -162,7 +174,13 @@ export class VidelPlayer extends HTMLElement {
           flex: 0 0 auto;
         }
         /* "Now playing" mirror card — occupies the active presentation's slot
-           position in the playlist (the real one is the stage overlay). */
+           position in the playlist (the real one is the stage overlay).
+           The card-content frame mirrors videl-presentation's .card-frame so
+           the cloned content (plain <strong>/<small> tags) renders identically:
+           the frame container provides the gradient, padding, bottom-alignment
+           and inherited colour/font, and the tags carry their own hierarchy.
+           Shadow CSS can't target the cloned descendants directly, so all text
+           styling here is inherited. */
         ::slotted(.videl-now-playing) {
           position: relative;
           width: 100%;
@@ -170,51 +188,40 @@ export class VidelPlayer extends HTMLElement {
           aspect-ratio: 16 / 9;
           overflow: hidden;
           border: 2px solid #4f9cf9;
-          background: #000;
           box-shadow: 0 0 0 1px rgba(79, 156, 249, 0.4);
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          gap: 2px;
+          padding: 8px;
+          box-sizing: border-box;
+          background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), #000;
+          color: #fff;
+          font-family: ui-monospace, monospace;
+          font-size: 11px;
+          line-height: 1.3;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
         }
 
-        .playlist-toggle {
-          position: absolute;
-          top: 8px;
-          right: 8px;
-          z-index: 5;
-          width: 30px;
-          height: 30px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: none;
-          background: rgba(0, 0, 0, 0.55);
-          color: #fff;
-          cursor: pointer;
-          padding: 0;
-          transition: background 0.12s;
+        /* ── User-inactivity: immersive mode ─────────────────────── */
+        /*
+         * When the pointer leaves or idles for 5 s, [user-inactive] is set on
+         * the host. The playlist column collapses (reusing the same CSS var and
+         * existing .layout transition) and the cursor disappears. Any pointer
+         * activity removes the attribute immediately.
+         */
+        :host([user-inactive]) {
+          cursor: none;
+          --videl-playlist-width: 0px;
         }
-        .playlist-toggle:hover { background: rgba(0, 0, 0, 0.8); }
-        .playlist-toggle svg { width: 18px; height: 18px; }
       </style>
       <div class="layout">
         <div class="stage"><slot name="stage"></slot></div>
         <aside class="playlist"><slot></slot></aside>
-      </div>
-      <button class="playlist-toggle" title="Toggle playlist" aria-label="Toggle playlist">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="8" y1="6" x2="21" y2="6"/>
-          <line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/>
-          <line x1="3" y1="18" x2="3.01" y2="18"/>
-        </svg>
-      </button>`;
+      </div>`;
 
     this.#video = document.createElement('video');
     this.#shadow.querySelector('.stage')!.appendChild(this.#video);
-
-    this.#shadow.querySelector('.playlist-toggle')!
-      .addEventListener('click', this.#onTogglePlaylist);
 
     for (const name of [
       'play','pause','timeupdate','seeking','seeked','ended',
@@ -226,11 +233,6 @@ export class VidelPlayer extends HTMLElement {
 
     this.#mutationObserver = new MutationObserver(this.#onMutation);
   }
-
-  /** Toggle the collapsible playlist column. */
-  #onTogglePlaylist = (): void => {
-    this.toggleAttribute('playlist-collapsed');
-  };
 
   /**
    * Show the playlist column only when there are at least two presentations to
@@ -308,6 +310,9 @@ export class VidelPlayer extends HTMLElement {
     this.addEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
     this.addEventListener('click',                this.#onPlaylistClick);
     this.#video.addEventListener('seeking',      this.#onVideoSeeking);
+    this.addEventListener('pointermove',         this.#onPointerActivity);
+    this.addEventListener('pointerdown',         this.#onPointerActivity);
+    this.addEventListener('pointerleave',        this.#onPointerLeave);
 
     this.#refreshPlaylistChrome();
 
@@ -336,6 +341,10 @@ export class VidelPlayer extends HTMLElement {
     this.removeEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
     this.removeEventListener('click',                this.#onPlaylistClick);
     this.#video.removeEventListener('seeking',      this.#onVideoSeeking);
+    this.removeEventListener('pointermove',         this.#onPointerActivity);
+    this.removeEventListener('pointerdown',         this.#onPointerActivity);
+    this.removeEventListener('pointerleave',        this.#onPointerLeave);
+    this.#clearInactivityTimer();
     this.#teardownMse();
   }
 
@@ -541,6 +550,7 @@ export class VidelPlayer extends HTMLElement {
     presEl.setAttribute('slot', 'stage');
     this.#activePresentation = presEl;
     this.#updateMirror();
+    this.#resetInactivityTimer();
 
     trace(this, 'mse', 'setup-complete', {
       sourceBuffers: [...this.#sourceBuffers.keys()],
@@ -554,10 +564,13 @@ export class VidelPlayer extends HTMLElement {
   #teardownPresentation(): void {
     if (this.#activePresentation) {
       this.#activePresentation.removeAttribute('videl-state');
+      this.#activePresentation.removeAttribute('user-inactive');
       // Return it to the default (playlist) slot.
       this.#activePresentation.removeAttribute('slot');
       this.#activePresentation = null;
     }
+    this.#clearInactivityTimer();
+    this.removeAttribute('user-inactive');
     this.#updateMirror();
   }
 
@@ -617,6 +630,40 @@ export class VidelPlayer extends HTMLElement {
       muted:         this.#video.muted,
     };
     (this.#activePresentation as any).videlUpdate(state);
+    this.#maybeEndOfStream();
+  }
+
+  /**
+   * Call `endOfStream()` once every source buffer has finished appending AND
+   * its buffered range reaches the presentation's declared duration (within a
+   * half-second tolerance for segment-boundary float drift).
+   *
+   * Without this the browser treats the stream as still-open and stalls
+   * playback at the last buffered byte, so `currentTime` never reaches
+   * `start + duration`, the period's `videl:done` never fires, and automatic
+   * playlist advancement never happens.
+   */
+  #maybeEndOfStream(): void {
+    if (!this.#mediaSource || this.#mediaSource.readyState !== 'open') return;
+    if (!this.#activePresentation || this.#sourceBuffers.size === 0) return;
+
+    const dur = Number(
+      this.#activePresentation.getAttribute('media-presentation-duration') ?? 0
+    );
+    if (dur <= 0) return; // live / unknown duration — never signal EOS
+
+    for (const msb of this.#sourceBuffers.values()) {
+      if (msb.updating) return; // append still in flight — wait for next tick
+      const b = msb.buffered;
+      if (b.length === 0 || b.end(b.length - 1) < dur - 0.5) return;
+    }
+
+    trace(this, 'mse', 'end-of-stream', { duration: dur });
+    try {
+      this.#mediaSource.endOfStream();
+    } catch {
+      // Already ended or MediaSource closed — safe to ignore.
+    }
   }
 
   // ── Seek ──────────────────────────────────────────────────────────────────
@@ -633,6 +680,43 @@ export class VidelPlayer extends HTMLElement {
     this.#stopPump();
     this.#pumpTick();
     this.#startPump();
+  };
+
+  // ── User-inactivity helpers ───────────────────────────────────────────────
+
+  #clearInactivityTimer(): void {
+    if (this.#inactivityTimer !== null) {
+      clearTimeout(this.#inactivityTimer);
+      this.#inactivityTimer = null;
+    }
+  }
+
+  /** Start (or restart) the 5-second inactivity timer and mark user active. */
+  #resetInactivityTimer(): void {
+    this.#clearInactivityTimer();
+    this.removeAttribute('user-inactive');
+    this.#activePresentation?.removeAttribute('user-inactive');
+    // Only run the timer while a presentation is active (playing).
+    if (this.#activePresentation) {
+      this.#inactivityTimer = setTimeout(this.#onInactivityTimeout, VidelPlayer.#INACTIVITY_MS);
+    }
+  }
+
+  #onInactivityTimeout = (): void => {
+    this.#inactivityTimer = null;
+    this.setAttribute('user-inactive', '');
+    this.#activePresentation?.setAttribute('user-inactive', '');
+  };
+
+  /** Any pointer movement or press inside the player restores active state. */
+  #onPointerActivity = (): void => {
+    if (this.#activePresentation) this.#resetInactivityTimer();
+  };
+
+  /** Pointer leaving the player boundary — let the normal timer run out. */
+  #onPointerLeave = (): void => {
+    // Don't go inactive immediately; the existing timer (if running) will
+    // expire naturally, giving controls the same linger as an idle mouse.
   };
 
   // ── Event handlers ────────────────────────────────────────────────────────
@@ -661,7 +745,11 @@ export class VidelPlayer extends HTMLElement {
     const currentIdx    = presentations.indexOf(completedPres);
     const nextPres      = presentations[currentIdx + 1];
 
-    const wasPlaying = !this.#video.paused;
+    // video.paused is true once the browser fires `ended`, so checking only
+    // !paused would always yield false here and the next presentation would
+    // never auto-play. video.ended means the user was watching — treat that
+    // as "was playing".
+    const wasPlaying = !this.#video.paused || this.#video.ended;
     const fromSrc    = completedPres.getAttribute('src') ?? '';
 
     trace(this, 'lifecycle', 'playlist-advance', {
@@ -729,7 +817,9 @@ export class VidelPlayer extends HTMLElement {
    * playlist-advance sequence but for an arbitrary user-selected presentation.
    */
   #switchToPresentation(target: Element): void {
-    const wasPlaying = !this.#video.paused;
+    // Include video.ended so clicking a card after natural playback completion
+    // auto-plays the selected presentation (same logic as #onPresentationDone).
+    const wasPlaying = !this.#video.paused || this.#video.ended;
     const fromSrc    = this.#activePresentation?.getAttribute('src') ?? null;
 
     trace(this, 'lifecycle', 'playlist-select', {

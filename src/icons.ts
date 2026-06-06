@@ -66,3 +66,23 @@ export const ICON_QUALITY: TemplateResult = icon(svg`
   <polyline points="2 17 12 22 22 17"/>
   <polyline points="2 12 12 17 22 12"/>
 `);
+
+/** ⛶ Fullscreen — arrows pointing to corners */
+export const ICON_FULLSCREEN: TemplateResult = icon(svg`
+  <polyline points="15 3 21 3 21 9"/>
+  <polyline points="9 21 3 21 3 15"/>
+  <line x1="21" y1="3" x2="14" y2="10"/>
+  <line x1="3" y1="21" x2="10" y2="14"/>
+`);
+
+/** ⛶ Exit fullscreen — arrows pointing inward */
+export const ICON_FULLSCREEN_EXIT: TemplateResult = icon(svg`
+  <polyline points="8 3 3 3 3 8"/>
+  <polyline points="21 8 21 3 16 3"/>
+  <polyline points="3 16 3 21 8 21"/>
+  <polyline points="16 21 21 21 21 16"/>
+  <line x1="3" y1="3" x2="10" y2="10"/>
+  <line x1="21" y1="3" x2="14" y2="10"/>
+  <line x1="21" y1="21" x2="14" y2="14"/>
+  <line x1="3" y1="21" x2="10" y2="14"/>
+`);
