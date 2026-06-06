@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from 'lit';
-import type { ISourceBuffer } from '../text-track/i-source-buffer';
+import type { ISourceBuffer } from '../lib/ergo-mse';
 import { trace } from '../trace';
 
 /**

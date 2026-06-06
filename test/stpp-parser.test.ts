@@ -109,7 +109,7 @@ test.describe('stpp sample parser (via TextSourceBuffer)', () => {
     expect(count).toBe(3);
   });
 
-  test('TTML timing is relative to sample PTS plus timestampOffset', async ({ page }) => {
+  test('TTML begin/end are absolute presentation times — only timestampOffset applied, not sample PTS', async ({ page }) => {
     const result = await page.evaluate(`(async () => {
       ${HELPERS}
       const { TextSourceBuffer } = await import('/dist/index.js');
@@ -117,13 +117,15 @@ test.describe('stpp sample parser (via TextSourceBuffer)', () => {
       const tsb = new TextSourceBuffer(video, 'Test', 'en', 'stpp');
       tsb.timestampOffset = 10;
       tsb.show();
-      // PTS = 5000 / 1000 = 5s; timestampOffset = 10s
-      // TTML begin=0.5s → cue.startTime = 5 + 10 + 0.5 = 15.5
-      // TTML end=1.0s   → cue.endTime   = 5 + 10 + 1.0 = 16.0
+      // TTML begin/end are absolute presentation times (not relative to sample PTS).
+      // PTS = 5000 / 1000 = 5s — this must NOT be added.
+      // timestampOffset = 10s is the only offset applied.
+      // TTML begin=0.5s (absolute) → cue.startTime = 0.5 + 10 = 10.5
+      // TTML end=1.0s   (absolute) → cue.endTime   = 1.0 + 10 = 11.0
       const ttml = \`<?xml version="1.0"?>
         <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml">
           <body><div>
-            <p begin="00:00:00.500" end="00:00:01.000">Offset cue</p>
+            <p begin="00:00:00.500" end="00:00:01.000">Absolute cue</p>
           </div></body>
         </tt>\`;
       await appendTtml(tsb, ttml, 5000, 1000);
@@ -133,8 +135,9 @@ test.describe('stpp sample parser (via TextSourceBuffer)', () => {
         : null;
     })()`);
     expect(result).not.toBeNull();
-    expect((result as any).start).toBeCloseTo(15.5, 3);
-    expect((result as any).end).toBeCloseTo(16.0, 3);
+    // Must be 0.5 + 10 = 10.5, NOT 5 + 10 + 0.5 = 15.5
+    expect((result as any).start).toBeCloseTo(10.5, 3);
+    expect((result as any).end).toBeCloseTo(11.0, 3);
   });
 
   test('<p> with no begin/end is skipped', async ({ page }) => {

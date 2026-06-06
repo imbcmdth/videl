@@ -17,7 +17,7 @@
  * level, not here.
  */
 
-import { findBox, iterBoxes, readUint32BE, readUint64BE, readFourcc } from './fmp4-box-utils';
+import { findBox, iterBoxes, readUint32BE, readUint64BE, readFourcc } from './box-utils';
 
 export interface TextSample {
   /**
@@ -123,7 +123,7 @@ export class Fmp4TextDemuxer {
     const moof = findBox(view, 0, len, 'moof');
     if (!moof) return samples;
 
-    const moofStart = moof.start; // offset within this view (= 0 in most cases)
+    const moofStart = moof.start;
     const moofEnd   = moof.end;
 
     // moof → traf
@@ -170,33 +170,29 @@ export class Fmp4TextDemuxer {
 
     const sampleCount = readUint32BE(view, trun.dataStart + 4);
 
-    const dataOffsetPresent      = (trunFlags & 0x000001) !== 0;
+    const dataOffsetPresent       = (trunFlags & 0x000001) !== 0;
     const firstSampleFlagsPresent = (trunFlags & 0x000004) !== 0;
-    const sampleDurationPresent  = (trunFlags & 0x000100) !== 0;
-    const sampleSizePresent      = (trunFlags & 0x000200) !== 0;
-    const sampleFlagsPresent     = (trunFlags & 0x000400) !== 0;
-    const sampleCtsOffsetPresent = (trunFlags & 0x000800) !== 0;
+    const sampleDurationPresent   = (trunFlags & 0x000100) !== 0;
+    const sampleSizePresent       = (trunFlags & 0x000200) !== 0;
+    const sampleFlagsPresent      = (trunFlags & 0x000400) !== 0;
+    const sampleCtsOffsetPresent  = (trunFlags & 0x000800) !== 0;
 
     let trunOffset = trun.dataStart + 8; // past version+flags+sample_count
 
-    // data_offset: offset from start of moof to first sample byte.
     let dataOffset = 0;
-    if (dataOffsetPresent)      { dataOffset = view.getInt32(trunOffset, false); trunOffset += 4; }
-    if (firstSampleFlagsPresent) { trunOffset += 4; } // skip
+    if (dataOffsetPresent)        { dataOffset = view.getInt32(trunOffset, false); trunOffset += 4; }
+    if (firstSampleFlagsPresent)  { trunOffset += 4; }
 
-    // Resolve first sample absolute offset within the buffer.
-    // Per ISO 14496-12 §8.8.8: data_offset is added to base_data_offset,
-    // which defaults to the start of the enclosing Movie Fragment Box (moofStart).
+    // Per ISO 14496-12 §8.8.8: data_offset is relative to base_data_offset
+    // which defaults to the start of the enclosing Movie Fragment Box.
     let firstSampleAbsOffset: number;
     if (dataOffsetPresent) {
       firstSampleAbsOffset = moofStart + dataOffset;
     } else {
-      // No explicit offset — find mdat that follows moof.
       const mdat = findBox(view, moofEnd, len, 'mdat');
       firstSampleAbsOffset = mdat ? mdat.dataStart : moofEnd + 8;
     }
 
-    // Collect per-sample {dt, duration, size} then slice mdat.
     interface SampleMeta { dt: number; duration: number; size: number; }
     const metas: SampleMeta[] = [];
     let dtAccum = baseMediaDecodeTime;
@@ -208,19 +204,17 @@ export class Fmp4TextDemuxer {
       if (sampleDurationPresent)  { duration = readUint32BE(view, trunOffset); trunOffset += 4; }
       if (sampleSizePresent)      { size     = readUint32BE(view, trunOffset); trunOffset += 4; }
       if (sampleFlagsPresent)     { trunOffset += 4; }
-      if (sampleCtsOffsetPresent) { trunOffset += 4; } // CTS not needed for text timing
+      if (sampleCtsOffsetPresent) { trunOffset += 4; }
 
       metas.push({ dt: dtAccum, duration, size });
       dtAccum += duration;
     }
 
-    // Slice mdat into per-sample Uint8Arrays.
     let byteOffset = firstSampleAbsOffset;
     const ts = this.#timescale || 1;
 
     for (const { dt, duration, size } of metas) {
       if (size > 0 && byteOffset + size <= len) {
-        // Copy to avoid holding a reference to the entire segment ArrayBuffer.
         const rawSlice = new Uint8Array(buf, off + byteOffset, size);
         const copied   = new Uint8Array(size);
         copied.set(rawSlice);

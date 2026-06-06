@@ -50,16 +50,13 @@ export function parseStppSample(data: Uint8Array): StppCueData[] {
     return [];
   }
 
-  // DOMParser parse error is surfaced as a <parsererror> element.
   if (doc.querySelector('parsererror')) return [];
 
-  // Detect image-based TTML: presence of <image> children inside any <p>.
   if (doc.querySelector('image') || doc.querySelector('*|image')) {
     console.warn('[videl] stpp sample contains <image> elements — image-based TTML is not supported in V1; skipping sample.');
     return [];
   }
 
-  // Gather <p> elements (TTML namespace first, fallback to local-name only).
   const paragraphs = Array.from<Element>(
     doc.getElementsByTagNameNS(TTML_NS, 'p').length > 0
       ? doc.getElementsByTagNameNS(TTML_NS, 'p')
@@ -105,7 +102,6 @@ export function parseStppSample(data: Uint8Array): StppCueData[] {
 function parseTtmlTime(value: string): number | null {
   const v = value.trim();
 
-  // HH:MM:SS.fraction  (e.g. "00:01:23.456")
   const decimalMatch = v.match(/^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/);
   if (decimalMatch) {
     return (
@@ -115,7 +111,6 @@ function parseTtmlTime(value: string): number | null {
     );
   }
 
-  // HH:MM:SS:frames  (e.g. "00:01:23:12", approximate at 30 fps)
   const frameMatch = v.match(/^(\d+):(\d{2}):(\d{2}):(\d{2,3})$/);
   if (frameMatch) {
     return (
@@ -131,10 +126,6 @@ function parseTtmlTime(value: string): number | null {
 
 // ── Text extraction ───────────────────────────────────────────────────────────
 
-/**
- * Recursively extract the text content of an element, inserting a single
- * space between adjacent inline elements and a newline for `<br>` / `<tts:br>`.
- */
 function extractText(el: Element): string {
   const parts: string[] = [];
 

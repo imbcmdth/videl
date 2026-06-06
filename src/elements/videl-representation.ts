@@ -1,7 +1,7 @@
 import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
-import type { ISourceBuffer } from '../text-track/i-source-buffer';
+import type { ISourceBuffer } from '../lib/ergo-mse';
 import { trace } from '../trace';
 
 // ---------------------------------------------------------------------------

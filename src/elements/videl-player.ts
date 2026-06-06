@@ -1,7 +1,6 @@
 import { parseMpd } from '../parser/mpd-parser';
-import { ManagedSourceBuffer } from '../managed-source-buffer';
-import { TextSourceBuffer } from '../text-track/text-source-buffer';
-import type { ISourceBuffer } from '../text-track/i-source-buffer';
+import { ManagedSourceBuffer, TextSourceBuffer } from '../lib/ergo-mse';
+import type { ISourceBuffer } from '../lib/ergo-mse';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
 
@@ -150,6 +149,12 @@ export class VidelPlayer extends HTMLElement {
           width: 100%;
           height: 100%;
           display: block;
+        }
+        video::-webkit-media-text-track-container {
+          bottom: 80px;
+        }
+        :host([user-inactive]) video::-webkit-media-text-track-container {
+          bottom: 20px;
         }
         .playlist {
           min-height: 0;

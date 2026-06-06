@@ -16,7 +16,7 @@
  * This parser only extracts the cue content.
  */
 
-import { findBox, iterBoxes } from './fmp4-box-utils';
+import { findBox, iterBoxes } from '../mp4/box-utils';
 
 export interface WvttCueData {
   id:       string;   // cue identifier (may be empty)
@@ -31,23 +31,19 @@ const decoder = new TextDecoder('utf-8');
  * Returns `null` for empty cues (`vtte` boxes) or samples with no `vttc`.
  */
 export function parseWvttSample(data: Uint8Array): WvttCueData | null {
-  // Create a DataView over just this sample's bytes.
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  // Find the vttc box at the top level of the sample.
   const vttc = findBox(view, 0, data.byteLength, 'vttc');
-  if (!vttc) return null; // vtte or unrecognised — empty cue
+  if (!vttc) return null;
 
   let id       = '';
   let payload  = '';
   let settings = '';
 
-  // Walk sub-boxes inside vttc.
   for (const sub of iterBoxes(view, vttc.dataStart, vttc.end)) {
     const dataLen = sub.end - sub.dataStart;
     if (dataLen <= 0) continue;
 
-    // Slice the raw bytes relative to the DataView (which is 0-relative over data).
     const textBytes = data.subarray(sub.dataStart, sub.dataStart + dataLen);
     const text      = decoder.decode(textBytes);
 
@@ -58,6 +54,5 @@ export function parseWvttSample(data: Uint8Array): WvttCueData | null {
     }
   }
 
-  // A cue with no payload is effectively empty — discard.
   return payload.length > 0 ? { id, payload, settings } : null;
 }

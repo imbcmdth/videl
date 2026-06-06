@@ -1,5 +1,4 @@
 export type { PlayerState } from './player-state';
-export { ManagedSourceBuffer } from './managed-source-buffer';
 export type { Constructor } from './mixins';
 export { PickOneMixin, PickNMixin, SequentialMixin } from './mixins';
 export { VidelSegment } from './elements/videl-segment';
@@ -10,11 +9,27 @@ export { VidelPresentation } from './elements/videl-presentation';
 export { VidelPlayer } from './elements/videl-player';
 export { parseMpd, ParseError, parseDuration } from './parser/mpd-parser';
 export type { TraceCategory, TraceDetail } from './trace';
-// Text track support
-export type { ISourceBuffer } from './text-track/i-source-buffer';
-export type { TextCodecClass } from './text-track/text-codec';
-export { classifyTextCodec, classifyTextMimeAndCodecs } from './text-track/text-codec';
-export { TextSourceBuffer } from './text-track/text-source-buffer';
-export { SyntheticTimeRanges } from './text-track/synthetic-time-ranges';
-export { Fmp4TextDemuxer } from './text-track/fmp4-text-demuxer';
-export type { TextSample, TextContainerCodec } from './text-track/fmp4-text-demuxer';
+
+// ── lib/ergo-mse ─────────────────────────────────────────────────────────────
+export type { ISourceBuffer } from './lib/ergo-mse';
+export type { TextCodecClass } from './lib/ergo-mse';
+export { classifyTextCodec, classifyTextMimeAndCodecs } from './lib/ergo-mse';
+export { ManagedSourceBuffer } from './lib/ergo-mse';
+export { TextSourceBuffer } from './lib/ergo-mse';
+export { SyntheticTimeRanges } from './lib/ergo-mse';
+
+// ── lib/mp4 ──────────────────────────────────────────────────────────────────
+export { Fmp4TextDemuxer } from './lib/mp4';
+export type { TextSample, TextContainerCodec } from './lib/mp4';
+export type { BoxInfo } from './lib/mp4';
+export { iterBoxes, findBox, readUint32BE, readUint64BE, readFourcc } from './lib/mp4';
+
+// ── lib/vtt ──────────────────────────────────────────────────────────────────
+export type { WvttCueData } from './lib/vtt';
+export { parseWvttSample } from './lib/vtt';
+export type { VttFileCueData } from './lib/vtt';
+export { parseVttFile, parseVttTimestamp } from './lib/vtt';
+
+// ── lib/ttml ─────────────────────────────────────────────────────────────────
+export type { StppCueData } from './lib/ttml';
+export { parseStppSample } from './lib/ttml';

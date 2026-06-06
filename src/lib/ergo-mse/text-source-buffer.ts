@@ -21,20 +21,16 @@
 
 import type { ISourceBuffer } from './i-source-buffer';
 import { SyntheticTimeRanges } from './synthetic-time-ranges';
-import { Fmp4TextDemuxer } from './fmp4-text-demuxer';
+import { Fmp4TextDemuxer } from '../mp4/text-demuxer';
 import { classifyTextMimeAndCodecs } from './text-codec';
-import { findBox } from './fmp4-box-utils';
 import type { TextCodecClass } from './text-codec';
-import { parseWvttSample } from './wvtt-parser';
-import { parseStppSample } from './stpp-parser';
+import { findBox } from '../mp4/box-utils';
+import { parseWvttSample } from '../vtt/parser';
+import { parseVttFile } from '../vtt/file-parser';
+import { parseStppSample } from '../ttml/parser';
 
 // ── VTT settings → VTTCue properties ──────────────────────────────────────────
 
-/**
- * Apply a WebVTT cue settings string to a VTTCue.
- * Only a subset is applied (line, position, align, size) — the rest are
- * silently ignored. This is best-effort for V1.
- */
 function applyCueSettings(cue: VTTCue, settings: string): void {
   if (!settings.trim()) return;
   for (const token of settings.trim().split(/\s+/)) {
@@ -75,34 +71,26 @@ interface QueueEntry {
 }
 
 export class TextSourceBuffer implements ISourceBuffer {
-  // ── TextTrack (public — consumers can set .mode directly) ─────────────────
   readonly textTrack: TextTrack;
 
-  // ── ISourceBuffer state ───────────────────────────────────────────────────
   timestampOffset = 0;
 
   #updating       = false;
   #bufferedRanges = new SyntheticTimeRanges();
 
-  // ── Demuxer + codec ───────────────────────────────────────────────────────
-  #demuxer       = new Fmp4TextDemuxer();
-  #codecClass:   TextCodecClass = { kind: 'unknown' };
-  #warnedImage   = false;
-  #warnedUnknown = false;
+  #demuxer        = new Fmp4TextDemuxer();
+  #codecClass:    TextCodecClass = { kind: 'unknown' };
+  #warnedImage    = false;
+  #warnedUnknown  = false;
 
-  // ── Operation queue ───────────────────────────────────────────────────────
-  #queue:        QueueEntry[] = [];
-  #isProcessing  = false;
-
-  // ── Constructor ───────────────────────────────────────────────────────────
+  #queue:         QueueEntry[] = [];
+  #isProcessing   = false;
 
   /**
    * @param videoEl    The HTMLVideoElement that will own the TextTrack.
    * @param label      Display label shown in the browser's track selector.
    * @param lang       BCP-47 language tag (e.g. "en", "fr").
    * @param codecHint  Codec string from the MPD manifest (e.g. "stpp.ttml.im1t").
-   *                   Used to classify image-profile codecs and route samples
-   *                   to the correct parser.
    */
   constructor(
     videoEl:   HTMLVideoElement,
@@ -110,9 +98,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     lang:      string,
     codecHint: string = '',
   ) {
-    this.textTrack           = videoEl.addTextTrack('subtitles', label, lang);
-    this.textTrack.mode      = 'hidden';
-    this.#codecClass         = classifyTextMimeAndCodecs(codecHint);
+    this.textTrack      = videoEl.addTextTrack('subtitles', label, lang);
+    this.textTrack.mode = 'hidden';
+    this.#codecClass    = classifyTextMimeAndCodecs(codecHint);
   }
 
   // ── ISourceBuffer ─────────────────────────────────────────────────────────
@@ -139,36 +127,29 @@ export class TextSourceBuffer implements ISourceBuffer {
 
   async abort(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      // Reject all queued-but-not-started operations immediately.
       const startIdx = this.#isProcessing ? 1 : 0;
       const drained  = this.#queue.splice(startIdx);
       for (const op of drained) op.reject(new Error('Aborted'));
 
-      if (!this.#isProcessing) {
-        resolve();
-        return;
-      }
-      // Wait for the in-flight op to finish.
+      if (!this.#isProcessing) { resolve(); return; }
       this.#queue.push({ kind: 'abort', args: [], resolve, reject });
     });
   }
 
   /**
    * Update the codec hint and reset the demuxer.
-   * Called when ABR switches to a representation with a different codec string.
+   * Called when an ADS switch changes the codec string — without this,
+   * the demuxer would still be configured for the old codec.
    */
   changeType(mimeAndCodecs: string): void {
-    this.#codecClass   = classifyTextMimeAndCodecs(mimeAndCodecs);
-    this.#warnedImage  = false;
+    this.#codecClass    = classifyTextMimeAndCodecs(mimeAndCodecs);
+    this.#warnedImage   = false;
     this.#warnedUnknown = false;
     this.#demuxer.reset();
   }
 
-  /** Switch the TextTrack to 'showing'. */
   show(): void { this.textTrack.mode = 'showing'; }
-
-  /** Switch the TextTrack to 'hidden'. */
-  hide(): void { this.textTrack.mode = 'hidden'; }
+  hide(): void { this.textTrack.mode = 'hidden';  }
 
   // ── Queue pump ────────────────────────────────────────────────────────────
 
@@ -179,18 +160,15 @@ export class TextSourceBuffer implements ISourceBuffer {
     this.#updating     = true;
     const op           = this.#queue[0];
 
-    // All operations are synchronous internally; wrap in a resolved promise to
-    // ensure callers always get async resolution (consistent with real MSB).
     Promise.resolve().then(() => {
       try {
         switch (op.kind) {
           case 'append': this.#doAppend(op.args[0] as ArrayBuffer | ArrayBufferView); break;
           case 'remove': this.#doRemove(op.args[0] as number, op.args[1] as number);  break;
-          case 'abort':  /* in-flight op already finished by the time we get here */ break;
+          case 'abort':  break;
         }
         op.resolve();
       } catch (err) {
-        // Flush remaining queue — same semantics as ManagedSourceBuffer.
         const ops = this.#queue.splice(0);
         this.#isProcessing = false;
         this.#updating     = false;
@@ -208,41 +186,46 @@ export class TextSourceBuffer implements ISourceBuffer {
   // ── Internal operations ───────────────────────────────────────────────────
 
   #doAppend(data: ArrayBuffer | ArrayBufferView): void {
-    // Image-profile and unknown codecs: skip with a one-time warning.
-    if (this.#codecClass.kind === 'stpp-image') {
-      if (!this.#warnedImage) {
-        console.warn('[videl] TextSourceBuffer: image-based TTML (stpp-image) is not supported in V1 — segments will be silently discarded.');
-        this.#warnedImage = true;
-      }
-      return;
+    switch (this.#codecClass.kind) {
+      case 'stpp-image':
+        if (!this.#warnedImage) {
+          console.warn('[videl] TextSourceBuffer: image-based TTML (stpp-image) is not supported — segments will be silently discarded.');
+          this.#warnedImage = true;
+        }
+        return;
+
+      case 'unknown':
+        if (!this.#warnedUnknown) {
+          console.warn('[videl] TextSourceBuffer: unknown codec — segments will be silently discarded. Classify via the MPD codecs attribute.');
+          this.#warnedUnknown = true;
+        }
+        return;
+
+      case 'vtt-sidecar':
+        this.#appendSidecarVtt(data);
+        return;
+
+      case 'ttml-sidecar':
+        this.#appendSidecarTtml(data);
+        return;
     }
-    if (this.#codecClass.kind === 'unknown') {
-      if (!this.#warnedUnknown) {
-        console.warn('[videl] TextSourceBuffer: unknown codec — segments will be silently discarded. Classify via the MPD codecs attribute.');
-        this.#warnedUnknown = true;
-      }
-      return;
-    }
+
+    // ── fMP4-encapsulated path (wvtt / stpp-text) ─────────────────────────────
 
     const buf = data instanceof ArrayBuffer ? data : data.buffer;
     const off = data instanceof ArrayBuffer ? 0    : (data as ArrayBufferView).byteOffset;
     const len = data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength;
 
-    // Detect init vs media segment by scanning all top-level boxes for 'moov'.
-    // An init segment may be preceded by an 'ftyp' box or other boxes — checking
-    // only the very first fourcc misses these cases and would leave the demuxer
-    // un-initialised, causing timescale to default to 1 and all cue timestamps
-    // to be expressed in raw ticks rather than seconds.
-    const view    = new DataView(buf, off, len);
-    const isInit  = findBox(view, 0, len, 'moov') !== null;
+    // Scan all top-level boxes for 'moov' — init segments may be preceded by
+    // 'ftyp' or other boxes, so checking only the first box fourcc is wrong.
+    const view   = new DataView(buf, off, len);
+    const isInit = findBox(view, 0, len, 'moov') !== null;
 
     if (isInit) {
       this.#demuxer.parseInit(data);
-      // Init segments carry no presentation-time data — don't update buffered.
       return;
     }
 
-    // Media segment: demux → parse payloads → inject cues.
     const textSamples = this.#demuxer.parseMedia(data);
     if (textSamples.length === 0) return;
 
@@ -253,11 +236,10 @@ export class TextSourceBuffer implements ISourceBuffer {
       const presentationTime = sample.pts + this.timestampOffset;
       const endTime          = presentationTime + sample.duration;
 
-      // Replace-on-append: remove existing cues in this sample's range first.
-      this.#removeCuesInRange(presentationTime, endTime);
-
-      // Parse payload and inject VTTCues.
       if (this.#codecClass.kind === 'wvtt') {
+        // wvtt: timing comes entirely from the fMP4 container (tfdt + trun).
+        // The vttc payload carries only the cue text/settings, no timestamps.
+        this.#removeCuesInRange(presentationTime, endTime);
         const cue = parseWvttSample(sample.data);
         if (cue) {
           const vtCue = new VTTCue(presentationTime, endTime, cue.payload);
@@ -265,21 +247,28 @@ export class TextSourceBuffer implements ISourceBuffer {
           applyCueSettings(vtCue, cue.settings);
           this.textTrack.addCue(vtCue);
         }
+        if (presentationTime < minPts) minPts = presentationTime;
+        if (endTime > maxEnd)          maxEnd = endTime;
       } else {
-        // stpp-text (stpp, im1t, im2t, etd1)
+        // stpp-text (stpp, im1t, im2t, etd1):
+        // begin/end in the TTML document are ABSOLUTE presentation times, not
+        // relative to the sample PTS. DASH-IF and real-world encoders write
+        // wall-clock presentation times in the XML; adding sample.pts would
+        // shift every cue later by the segment's position in the timeline.
+        // Only timestampOffset is applied (period start – pto/timescale).
         const cues = parseStppSample(sample.data);
         for (const c of cues) {
-          const cueStart = presentationTime + c.begin;
-          const cueEnd   = presentationTime + c.end;
+          const cueStart = c.begin + this.timestampOffset;
+          const cueEnd   = c.end   + this.timestampOffset;
           if (cueStart >= cueEnd) continue;
+          this.#removeCuesInRange(cueStart, cueEnd);
           const vtCue = new VTTCue(cueStart, cueEnd, c.payload);
           vtCue.id    = c.id;
           this.textTrack.addCue(vtCue);
+          if (cueStart < minPts) minPts = cueStart;
+          if (cueEnd   > maxEnd) maxEnd = cueEnd;
         }
       }
-
-      if (presentationTime < minPts) minPts = presentationTime;
-      if (endTime > maxEnd)          maxEnd = endTime;
     }
 
     if (minPts < Infinity) {
@@ -287,29 +276,97 @@ export class TextSourceBuffer implements ISourceBuffer {
     }
   }
 
+  // ── Sidecar helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Append a sidecar WebVTT file (text/vtt).
+   * Cue times in the VTT file are absolute presentation times. `timestampOffset`
+   * is applied on top (same as for fMP4 paths) to handle multi-period alignment.
+   * There is no separate init segment — every append is the full file content.
+   */
+  #appendSidecarVtt(data: ArrayBuffer | ArrayBufferView): void {
+    const buf   = data instanceof ArrayBuffer ? data : data.buffer;
+    const off   = data instanceof ArrayBuffer ? 0    : (data as ArrayBufferView).byteOffset;
+    const len   = data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength;
+    const bytes = new Uint8Array(buf, off, len);
+
+    const cues = parseVttFile(bytes);
+    if (cues.length === 0) return;
+
+    let minPts = Infinity;
+    let maxEnd = -Infinity;
+
+    for (const c of cues) {
+      const startTime = c.startTime + this.timestampOffset;
+      const endTime   = c.endTime   + this.timestampOffset;
+      if (startTime >= endTime) continue;
+
+      this.#removeCuesInRange(startTime, endTime);
+
+      const vtCue = new VTTCue(startTime, endTime, c.payload);
+      vtCue.id    = c.id;
+      applyCueSettings(vtCue, c.settings);
+      this.textTrack.addCue(vtCue);
+
+      if (startTime < minPts) minPts = startTime;
+      if (endTime   > maxEnd) maxEnd = endTime;
+    }
+
+    if (minPts < Infinity) this.#bufferedRanges.add(minPts, maxEnd);
+  }
+
+  /**
+   * Append a sidecar TTML document (application/ttml+xml).
+   * Reuses `parseStppSample` — the XML format is identical to fMP4 stpp.
+   * Cue `begin`/`end` are absolute presentation times; only `timestampOffset`
+   * is applied. This is the same logic as fMP4 stpp-text.
+   */
+  #appendSidecarTtml(data: ArrayBuffer | ArrayBufferView): void {
+    const buf   = data instanceof ArrayBuffer ? data : data.buffer;
+    const off   = data instanceof ArrayBuffer ? 0    : (data as ArrayBufferView).byteOffset;
+    const len   = data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength;
+    const bytes = new Uint8Array(buf, off, len);
+
+    // parseStppSample returns relative begin/end. For sidecar TTML those values
+    // ARE the absolute presentation times (equivalent to pts=0 fMP4 sample).
+    const cues = parseStppSample(bytes);
+    if (cues.length === 0) return;
+
+    let minPts = Infinity;
+    let maxEnd = -Infinity;
+
+    for (const c of cues) {
+      const startTime = c.begin + this.timestampOffset;
+      const endTime   = c.end   + this.timestampOffset;
+      if (startTime >= endTime) continue;
+
+      this.#removeCuesInRange(startTime, endTime);
+
+      const vtCue = new VTTCue(startTime, endTime, c.payload);
+      vtCue.id    = c.id;
+      this.textTrack.addCue(vtCue);
+
+      if (startTime < minPts) minPts = startTime;
+      if (endTime   > maxEnd) maxEnd = endTime;
+    }
+
+    if (minPts < Infinity) this.#bufferedRanges.add(minPts, maxEnd);
+  }
+
   #doRemove(start: number, end: number): void {
     this.#removeCuesInRange(start, end);
     this.#bufferedRanges.cut(start, end);
   }
 
-  /**
-   * Remove all cues from textTrack whose range overlaps [start, end).
-   * Snapshots the cue list first because removing cues while iterating is unsafe.
-   */
   #removeCuesInRange(start: number, end: number): void {
     const cues = this.textTrack.cues;
     if (!cues || cues.length === 0) return;
 
-    // Snapshot to avoid live-collection mutation issues.
     const toRemove: TextTrackCue[] = [];
     for (let i = 0; i < cues.length; i++) {
       const c = cues[i];
-      if (c.startTime < end && c.endTime > start) {
-        toRemove.push(c);
-      }
+      if (c.startTime < end && c.endTime > start) toRemove.push(c);
     }
-    for (const c of toRemove) {
-      this.textTrack.removeCue(c);
-    }
+    for (const c of toRemove) this.textTrack.removeCue(c);
   }
 }
