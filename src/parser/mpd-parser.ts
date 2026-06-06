@@ -71,8 +71,12 @@ function buildPresentation(mpd: Element, baseUrl: string): HTMLElement {
   const minBuf  = mpd.getAttribute('minBufferTime');
   const type    = mpd.getAttribute('type') ?? 'static';
 
-  if (dur)    el.setAttribute('media-presentation-duration', String(parseDuration(dur)));
-  if (minBuf) el.setAttribute('min-buffer-time',             String(parseDuration(minBuf)));
+  if (dur)    {
+    el.setAttribute('media-presentation-duration', String(parseDuration(dur)));
+  }
+  if (minBuf) {
+    el.setAttribute('min-buffer-time',             String(parseDuration(minBuf)));
+  }
   el.setAttribute('type', type);
 
   const mpdBase = resolveBaseUrl(mpd, baseUrl);
@@ -130,7 +134,7 @@ function buildPeriod(
   for (const ads of children(period, 'AdaptationSet')) {
     el.appendChild(buildAdaptationSet(ads, {
       base, parentST: periodST, parentSL: periodSL ?? undefined,
-      periodStart: start, periodDuration,
+      periodStart: start, periodDuration
     }));
   }
 
@@ -170,14 +174,20 @@ function buildAdaptationSet(
   const firstRep   = child(ads, 'Representation');
   const mimeType   = ads.getAttribute('mimeType') || firstRep?.getAttribute('mimeType') || '';
   const codecs     = ads.getAttribute('codecs')   || firstRep?.getAttribute('codecs')   || '';
-  const contentType = ads.getAttribute('contentType')
-    ?? inferContentType(mimeType, codecs);
+  const contentType = ads.getAttribute('contentType') ??
+    inferContentType(mimeType, codecs);
 
   el.setAttribute('content-type', contentType);
-  if (mimeType)  el.setAttribute('mime-type', mimeType);
-  if (codecs)    el.setAttribute('codecs',    codecs);
-  if (lang)      el.setAttribute('lang',      lang);
-  
+  if (mimeType)  {
+    el.setAttribute('mime-type', mimeType);
+  }
+  if (codecs)    {
+    el.setAttribute('codecs',    codecs);
+  }
+  if (lang)      {
+    el.setAttribute('lang',      lang);
+  }
+
   // Compute display label following priority: Label child element, label attribute, lang attribute, contentType, 'track'
   const displayLabel = computeAdaptationSetLabel(ads, lang, contentType);
   el.setAttribute('label', displayLabel);
@@ -193,14 +203,13 @@ function buildAdaptationSet(
   const repElements = children(ads, 'Representation').map(rep =>
     buildRepresentation(rep, {
       base,
-      parentST:       merged,
-      parentSL:       adsSL,
-      periodStart:    ctx.periodStart,
+      parentST: merged,
+      parentSL: adsSL,
+      periodStart: ctx.periodStart,
       periodDuration: ctx.periodDuration,
       parentMimeType: mimeType,
-      parentCodecs:   codecs,
-    })
-  );
+      parentCodecs: codecs
+    }));
 
   // For video adaptation sets, sort representations by increasing bandwidth
   if (contentType === 'video') {
@@ -266,10 +275,18 @@ function buildRepresentation(
 
   el.setAttribute('id',        id);
   el.setAttribute('bandwidth', String(bandwidth));
-  if (width)    el.setAttribute('width',    width);
-  if (height)   el.setAttribute('height',   height);
-  if (mimeType) el.setAttribute('mime-type', mimeType);
-  if (codecs)   el.setAttribute('codecs',    codecs);
+  if (width)    {
+    el.setAttribute('width',    width);
+  }
+  if (height)   {
+    el.setAttribute('height',   height);
+  }
+  if (mimeType) {
+    el.setAttribute('mime-type', mimeType);
+  }
+  if (codecs)   {
+    el.setAttribute('codecs',    codecs);
+  }
 
   const base   = resolveBaseUrl(rep, ctx.base);
   const repST  = readSegTemplate(rep);
@@ -278,7 +295,7 @@ function buildRepresentation(
   buildSegments(rep, el, {
     base, st, parentSL: ctx.parentSL,
     periodStart: ctx.periodStart, periodDuration: ctx.periodDuration,
-    id, bandwidth,
+    id, bandwidth
   });
 
   return el;
@@ -316,11 +333,15 @@ function buildSegments(
 
   // Priority: SegmentBase > SegmentList > SegmentTemplate (inherited or local)
   const sb = child(rep, 'SegmentBase');
-  if (sb) { buildSegmentBase(rep, repEl, base); return; }
+  if (sb) {
+    buildSegmentBase(rep, repEl, base); return;
+  }
 
   // SegmentList: check Representation first, then inherited from AdaptationSet.
   const sl = child(rep, 'SegmentList') ?? parentSL;
-  if (sl) { buildSegmentList(sl, repEl, base); return; }
+  if (sl) {
+    buildSegmentList(sl, repEl, base); return;
+  }
 
   if (!st?.media) {
     // No SegmentBase / SegmentList / SegmentTemplate: this is the ISO on-demand
@@ -359,7 +380,9 @@ function buildFromTimeline(
   base:    string
 ): void {
   const { media, timescale, startNumber, pto, timeline } = st;
-  if (!media || !timeline) return;
+  if (!media || !timeline) {
+    return;
+  }
 
   let segNumber = startNumber;
   let t = 0; // running time cursor in timescale units
@@ -367,7 +390,9 @@ function buildFromTimeline(
   for (const s of timeline) {
     const sT = s.hasAttribute('t') ? Number(s.getAttribute('t')) : t;
     const d  = Number(s.getAttribute('d') ?? 0);
-    if (d === 0) continue;
+    if (d === 0) {
+      continue;
+    }
     let r = Number(s.getAttribute('r') ?? 0);
 
     t = sT;
@@ -408,10 +433,14 @@ function buildFromNumber(
   base:    string
 ): void {
   const { media, timescale, startNumber, segDuration } = st;
-  if (!media || !segDuration) return;
+  if (!media || !segDuration) {
+    return;
+  }
 
   const segDurSec = segDuration / timescale;
-  if (periodDuration === undefined || segDurSec <= 0) return;
+  if (periodDuration === undefined || segDurSec <= 0) {
+    return;
+  }
 
   const count = Math.ceil(periodDuration / segDurSec);
 
@@ -428,7 +457,9 @@ function buildFromNumber(
 // SegmentBase → single segment + init
 function buildSegmentBase(rep: Element, repEl: HTMLElement, base: string): void {
   const sb  = child(rep, 'SegmentBase');
-  if (!sb) return;
+  if (!sb) {
+    return;
+  }
 
   const segUrl    = resolveBaseUrl(rep, base);
   const indexRange = sb.getAttribute('indexRange');
@@ -438,12 +469,16 @@ function buildSegmentBase(rep: Element, repEl: HTMLElement, base: string): void 
     const initRange = init.getAttribute('range');
     const initUrl   = init.getAttribute('sourceURL');
     repEl.setAttribute('initialization-url', initUrl ? resolveUrl(initUrl, segUrl) : segUrl);
-    if (initRange) repEl.setAttribute('initialization-byte-range', initRange);
+    if (initRange) {
+      repEl.setAttribute('initialization-byte-range', initRange);
+    }
   }
 
   const segEl = document.createElement('videl-segment');
   segEl.setAttribute('url', segUrl);
-  if (indexRange) segEl.setAttribute('byte-range', indexRange);
+  if (indexRange) {
+    segEl.setAttribute('byte-range', indexRange);
+  }
   repEl.appendChild(segEl);
 }
 
@@ -459,7 +494,9 @@ function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
     const range = init.getAttribute('range');
     if (src) {
       repEl.setAttribute('initialization-url', resolveUrl(src, base));
-      if (range) repEl.setAttribute('initialization-byte-range', range);
+      if (range) {
+        repEl.setAttribute('initialization-byte-range', range);
+      }
     }
   }
 
@@ -470,7 +507,9 @@ function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
 
     const segEl = document.createElement('videl-segment');
     segEl.setAttribute('url', resolveUrl(media, base));
-    if (mediaRange) segEl.setAttribute('byte-range', mediaRange);
+    if (mediaRange) {
+      segEl.setAttribute('byte-range', mediaRange);
+    }
     if (segDuration !== undefined) {
       segEl.setAttribute('start-time', String(idx * segDuration / timescale));
       segEl.setAttribute('duration',   String(segDuration / timescale));
@@ -494,7 +533,9 @@ function appendSegment(repEl: HTMLElement, url: string, startTime: number, durat
 
 function readSegTemplate(el: Element): Partial<SegTemplate> | undefined {
   const st = child(el, 'SegmentTemplate');
-  if (!st) return undefined;
+  if (!st) {
+    return undefined;
+  }
 
   // S elements live inside a <SegmentTimeline> child, not directly under
   // <SegmentTemplate>.
@@ -502,15 +543,15 @@ function readSegTemplate(el: Element): Partial<SegTemplate> | undefined {
   const timelineEls = timelineEl ? children(timelineEl, 'S') : [];
 
   return {
-    media:          st.getAttribute('media')          ?? undefined,
+    media: st.getAttribute('media')          ?? undefined,
     initialization: st.getAttribute('initialization') ?? undefined,
-    timescale:      Number(st.getAttribute('timescale')              ?? 1),
-    startNumber:    Number(st.getAttribute('startNumber')            ?? 1),
-    pto:            Number(st.getAttribute('presentationTimeOffset') ?? 0),
-    segDuration:    st.hasAttribute('duration')
-                      ? Number(st.getAttribute('duration'))
-                      : undefined,
-    timeline:       timelineEls.length > 0 ? timelineEls : undefined,
+    timescale: Number(st.getAttribute('timescale')              ?? 1),
+    startNumber: Number(st.getAttribute('startNumber')            ?? 1),
+    pto: Number(st.getAttribute('presentationTimeOffset') ?? 0),
+    segDuration: st.hasAttribute('duration') ?
+      Number(st.getAttribute('duration')) :
+      undefined,
+    timeline: timelineEls.length > 0 ? timelineEls : undefined
   };
 }
 
@@ -519,15 +560,17 @@ function mergeSegTemplate(
   parent?: Partial<SegTemplate>,
   child2?: Partial<SegTemplate>
 ): SegTemplate | undefined {
-  if (!parent && !child2) return undefined;
+  if (!parent && !child2) {
+    return undefined;
+  }
   return {
-    media:          child2?.media          ?? parent?.media,
+    media: child2?.media          ?? parent?.media,
     initialization: child2?.initialization ?? parent?.initialization,
-    timescale:      child2?.timescale      ?? parent?.timescale      ?? 1,
-    startNumber:    child2?.startNumber    ?? parent?.startNumber    ?? 1,
-    pto:            child2?.pto            ?? parent?.pto            ?? 0,
-    segDuration:    child2?.segDuration    ?? parent?.segDuration,
-    timeline:       child2?.timeline       ?? parent?.timeline,
+    timescale: child2?.timescale      ?? parent?.timescale      ?? 1,
+    startNumber: child2?.startNumber    ?? parent?.startNumber    ?? 1,
+    pto: child2?.pto            ?? parent?.pto            ?? 0,
+    segDuration: child2?.segDuration    ?? parent?.segDuration,
+    timeline: child2?.timeline       ?? parent?.timeline
   };
 }
 
@@ -559,9 +602,13 @@ function expandTemplate(
 
 function resolveBaseUrl(el: Element, parentBase: string): string {
   const baseUrlEl = child(el, 'BaseURL');
-  if (!baseUrlEl) return parentBase;
+  if (!baseUrlEl) {
+    return parentBase;
+  }
   let text = baseUrlEl.textContent?.trim() ?? '';
-  if (!text) return parentBase;
+  if (!text) {
+    return parentBase;
+  }
   // DASH BaseURL acts as a directory prefix for relative-URL resolution.
   // Add a trailing slash when the last path segment has no file extension
   // (e.g. '/streams' → '/streams/') so that `new URL(rel, base)` appends
@@ -570,14 +617,22 @@ function resolveBaseUrl(el: Element, parentBase: string): string {
   // (e.g. 'video.mp4' — used in SegmentBase single-file addressing).
   if (!text.endsWith('/') && !text.includes('?')) {
     const lastSeg = text.split('/').pop() ?? '';
-    if (!/\.[a-z0-9]+$/i.test(lastSeg)) text += '/';
+    if (!/\.[a-z0-9]+$/i.test(lastSeg)) {
+      text += '/';
+    }
   }
   return resolveUrl(text, parentBase);
 }
 
 function resolveUrl(url: string, base: string): string {
-  if (!url) return base;
-  try { return new URL(url, base).href; } catch { return url; }
+  if (!url) {
+    return base;
+  }
+  try {
+    return new URL(url, base).href;
+  } catch {
+    return url;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -585,18 +640,30 @@ function resolveUrl(url: string, base: string): string {
 // ---------------------------------------------------------------------------
 
 function inferContentType(mimeType: string, codecs = ''): string {
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType.startsWith('video/')) {
+    return 'video';
+  }
+  if (mimeType.startsWith('audio/')) {
+    return 'audio';
+  }
   if (mimeType.startsWith('text/')  ||
       mimeType.includes('ttml')     ||
       mimeType.includes('vtt')      ||
-      mimeType.includes('cea'))      return 'text';
+      mimeType.includes('cea'))      {
+    return 'text';
+  }
 
   // Fall back to codec sniffing when the MIME type is generic/absent.
   const c = codecs.toLowerCase();
-  if (/^(mp4a|ac-[34]|ec-3|opus|vorbis|flac|dts|alac)/.test(c)) return 'audio';
-  if (/^(avc|hvc|hev|dvh|vp0?[89]|av01|mp4v)/.test(c))          return 'video';
-  if (/^(wvtt|stpp|ttml)/.test(c))                              return 'text';
+  if (/^(mp4a|ac-[34]|ec-3|opus|vorbis|flac|dts|alac)/.test(c)) {
+    return 'audio';
+  }
+  if (/^(avc|hvc|hev|dvh|vp0?[89]|av01|mp4v)/.test(c))          {
+    return 'video';
+  }
+  if (/^(wvtt|stpp|ttml)/.test(c))                              {
+    return 'text';
+  }
   return 'video'; // safe default
 }
 
@@ -606,21 +673,27 @@ function inferContentType(mimeType: string, codecs = ''): string {
 
 function computeAdaptationSetLabel(ads: Element, lang: string, contentType: string): string {
   // Priority order: Label child element, label attribute, lang attribute, contentType, 'track'
-  
+
   // 1. Check for Label child element
   const labelEl = child(ads, 'Label');
   if (labelEl) {
     const text = labelEl.textContent?.trim();
-    if (text) return text;
+    if (text) {
+      return text;
+    }
   }
-  
+
   // 2. Check label attribute
   const label = ads.getAttribute('label');
-  if (label) return label;
-  
+  if (label) {
+    return label;
+  }
+
   // 3. Check lang attribute
-  if (lang) return lang;
-  
+  if (lang) {
+    return lang;
+  }
+
   // 4. Fall back to contentType or 'track'
   return contentType || 'track';
 }
@@ -630,10 +703,10 @@ function computeAdaptationSetLabel(ads: Element, lang: string, contentType: stri
 // ---------------------------------------------------------------------------
 
 export function parseDuration(s: string): number {
-  const m = s.match(
-    /^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
-  );
-  if (!m) return 0;
+  const m = s.match(/^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/);
+  if (!m) {
+    return 0;
+  }
   return (Number(m[1] ?? 0) * 86400 +
           Number(m[2] ?? 0) * 3600  +
           Number(m[3] ?? 0) * 60    +
@@ -646,7 +719,9 @@ export function parseDuration(s: string): number {
 
 function child(el: Element, localName: string): Element | null {
   for (const c of el.children) {
-    if (c.localName === localName) return c;
+    if (c.localName === localName) {
+      return c;
+    }
   }
   return null;
 }
@@ -654,7 +729,9 @@ function child(el: Element, localName: string): Element | null {
 function children(el: Element, localName: string): Element[] {
   const result: Element[] = [];
   for (const c of el.children) {
-    if (c.localName === localName) result.push(c);
+    if (c.localName === localName) {
+      result.push(c);
+    }
   }
   return result;
 }

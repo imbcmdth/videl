@@ -32,19 +32,24 @@ export function SequentialMixin<TBase extends Constructor<HTMLElement & SlotHost
 
     #onChildComplete: (event: Event) => void;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args);
       this.#onChildComplete = (event: Event) => {
         const target = event.target as Element;
         // Only react to events from direct children.
-        if (!target || target.parentElement !== this) return;
+        if (!target || target.parentElement !== this) {
+          return;
+        }
 
         const next = target.nextElementSibling;
 
         // Deactivate the completing child.
         target.removeAttribute('videl-state');
 
-        if (!next) return; // End of sequence — nothing to advance to.
+        if (!next) {
+          return;
+        } // End of sequence — nothing to advance to.
 
         // Activate the next sibling.
         this.activateChild(next);

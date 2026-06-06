@@ -40,9 +40,15 @@ export type TextCodecClass =
  */
 export function classifyTextCodec(codec: string): TextCodecClass {
   const c = codec.trim().toLowerCase();
-  if (c === 'wvtt') return { kind: 'wvtt' };
-  if (c === 'stpp.ttml.im1i' || c === 'stpp.ttml.im2i') return { kind: 'stpp-image' };
-  if (c.startsWith('stpp')) return { kind: 'stpp-text' };
+  if (c === 'wvtt') {
+    return { kind: 'wvtt' };
+  }
+  if (c === 'stpp.ttml.im1i' || c === 'stpp.ttml.im2i') {
+    return { kind: 'stpp-image' };
+  }
+  if (c.startsWith('stpp')) {
+    return { kind: 'stpp-text' };
+  }
   return { kind: 'unknown' };
 }
 

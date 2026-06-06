@@ -35,7 +35,7 @@ export function readFourcc(view: DataView, offset: number): string {
     view.getUint8(offset),
     view.getUint8(offset + 1),
     view.getUint8(offset + 2),
-    view.getUint8(offset + 3),
+    view.getUint8(offset + 3)
   );
 }
 
@@ -46,7 +46,7 @@ export function readFourcc(view: DataView, offset: number): string {
 export function* iterBoxes(
   view:  DataView,
   start: number,
-  end:   number,
+  end:   number
 ): Generator<BoxInfo> {
   let offset = start;
   while (offset + 8 <= end) {
@@ -58,7 +58,9 @@ export function* iterBoxes(
 
     if (size32 === 1) {
       // Extended-size: next 8 bytes are the real 64-bit size.
-      if (offset + 16 > end) break;
+      if (offset + 16 > end) {
+        break;
+      }
       size       = readUint64BE(view, offset + 8);
       headerSize = 16;
     } else if (size32 === 0) {
@@ -70,14 +72,16 @@ export function* iterBoxes(
       headerSize = 8;
     }
 
-    if (size < headerSize) break; // malformed — stop
+    if (size < headerSize) {
+      break;
+    } // malformed — stop
 
     yield {
       fourcc,
-      start:      offset,
+      start: offset,
       headerSize,
-      dataStart:  offset + headerSize,
-      end:        offset + size,
+      dataStart: offset + headerSize,
+      end: offset + size
     };
 
     offset += size;
@@ -92,10 +96,12 @@ export function findBox(
   view:   DataView,
   start:  number,
   end:    number,
-  fourcc: string,
+  fourcc: string
 ): BoxInfo | null {
   for (const box of iterBoxes(view, start, end)) {
-    if (box.fourcc === fourcc) return box;
+    if (box.fourcc === fourcc) {
+      return box;
+    }
   }
   return null;
 }

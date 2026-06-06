@@ -34,7 +34,9 @@ export function parseWvttSample(data: Uint8Array): WvttCueData | null {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   const vttc = findBox(view, 0, data.byteLength, 'vttc');
-  if (!vttc) return null;
+  if (!vttc) {
+    return null;
+  }
 
   let id       = '';
   let payload  = '';
@@ -42,7 +44,9 @@ export function parseWvttSample(data: Uint8Array): WvttCueData | null {
 
   for (const sub of iterBoxes(view, vttc.dataStart, vttc.end)) {
     const dataLen = sub.end - sub.dataStart;
-    if (dataLen <= 0) continue;
+    if (dataLen <= 0) {
+      continue;
+    }
 
     const textBytes = data.subarray(sub.dataStart, sub.dataStart + dataLen);
     const text      = decoder.decode(textBytes);

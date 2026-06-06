@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from '../lib/ergo-mse';
+import { VidelRepresentation } from './videl-representation';
 import { trace } from '../trace';
 
 /**
@@ -24,26 +25,26 @@ import { trace } from '../trace';
  */
 export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   static properties = {
-    contentType:     { type: String,  attribute: 'content-type' },
-    mimeType:        { type: String,  attribute: 'mime-type' },
-    codecs:          { type: String },
-    label:           { type: String },
-    lang:            { type: String },
-    slot:            { type: String,  reflect: true },
+    contentType: { type: String,  attribute: 'content-type' },
+    mimeType: { type: String,  attribute: 'mime-type' },
+    codecs: { type: String },
+    label: { type: String },
+    lang: { type: String },
+    slot: { type: String,  reflect: true },
     abrSafetyFactor: { type: Number,  attribute: 'abr-safety-factor' },
     /**
      * When set, ABR is disabled and this representation ID is always selected.
      * Set by a left-click on a video representation row; cleared automatically
      * when that representation is removed from the DOM.
      */
-    forcedRepId:     { type: String,  attribute: 'forced-rep' },
+    forcedRepId: { type: String,  attribute: 'forced-rep' },
     /**
      * Marks this as the synthetic "None" text adaptation set injected by the
      * MPD parser. When it becomes active, the shared TextSourceBuffer is
      * hidden rather than shown. Has no meaning on non-text ADS elements.
      */
-    videlTextNone:   { type: Boolean, attribute: 'videl-text-none' },
-    debug:           { type: Boolean },
+    videlTextNone: { type: Boolean, attribute: 'videl-text-none' },
+    debug: { type: Boolean }
   };
 
   contentType     = '';
@@ -64,8 +65,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #sourceBuffer: ISourceBuffer | null = null;
 
-  get sourceBuffer(): ISourceBuffer | null { return this.#sourceBuffer; }
-  set sourceBuffer(val: ISourceBuffer | null) { this.#sourceBuffer = val; }
+  get sourceBuffer(): ISourceBuffer | null {
+    return this.#sourceBuffer;
+  }
+  set sourceBuffer(val: ISourceBuffer | null) {
+    this.#sourceBuffer = val;
+  }
 
   #activeMimeAndCodecs: string | null = null;
 
@@ -88,7 +93,9 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'videl-state') return;
+    if (name !== 'videl-state') {
+      return;
+    }
 
     if (value === 'active') {
       if (!this.#sourceBuffer) {
@@ -96,13 +103,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         // videl-player assigns it during #setupMse. If it activates before that
         // (shouldn't happen in normal flow), silently skip — no error needed.
         if (this.contentType !== 'text' || !this.videlTextNone) {
-          this.dispatchEvent(
-            new CustomEvent('videl:mse:error', {
-              bubbles: true,
-              composed: true,
-              detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' },
-            })
-          );
+          this.dispatchEvent(new CustomEvent('videl:mse:error', {
+            bubbles: true,
+            composed: true,
+            detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' }
+          }));
         }
         return;
       }
@@ -118,20 +123,18 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
           // init segment. This is the correct place because the ADS (not the
           // representation) owns the codec string from the MPD manifest —
           // and an ADS switch (e.g. English→French) may change the codec.
-          const codecs = this.codecs
-            || (this.#childRepresentations[0] as any)?.codecs
-            || '';
-          const mime   = this.mimeType
-            || (this.#childRepresentations[0] as any)?.mimeType
-            || '';
+          const codecs = this.codecs || this.#childRepresentations[0]?.codecs || '';
+          const mime   = this.mimeType || this.#childRepresentations[0]?.mimeType || '';
           const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
-          if (mimeAndCodecs) this.#sourceBuffer.changeType(mimeAndCodecs);
+          if (mimeAndCodecs) {
+            this.#sourceBuffer.changeType(mimeAndCodecs);
+          }
           this.#sourceBuffer.show?.();
         }
       }
       // Distribute SourceBuffer to every child representation before activation.
       for (const rep of this.#childRepresentations) {
-        (rep as any).sourceBuffer = this.#sourceBuffer;
+        rep.sourceBuffer = this.#sourceBuffer;
       }
     } else if (value === null) {
       this.#sourceBuffer        = null;
@@ -142,12 +145,17 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   // ── Pump method ───────────────────────────────────────────────────────────
 
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('videl-state') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
 
     this.#lastState = state;
 
     const target  = this.#selectRepresentation(state.bandwidth, state.playbackRate);
-    if (!target) return;
+
+    if (!target) {
+      return;
+    }
 
     const current = this.#activeRepresentation;
 
@@ -163,99 +171,90 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  get #childRepresentations(): Element[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-representation'
-    );
+  get #childRepresentations(): VidelRepresentation[] {
+    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-representation') as VidelRepresentation[];
   }
 
-  get #activeRepresentation(): Element | null {
-    return (
-      this.#childRepresentations.find(
-        r => r.getAttribute('videl-state') === 'active'
-      ) ?? null
-    );
+  get #activeRepresentation(): VidelRepresentation | null {
+    return this.#childRepresentations.find(r => r.getAttribute('videl-state') === 'active') ?? null;
   }
 
-  #selectRepresentation(bandwidth: number, playbackRate: number): Element | null {
+  #selectRepresentation(bandwidth: number, playbackRate: number): VidelRepresentation | null {
     const reps = this.#childRepresentations;
-    if (reps.length === 0) return null;
+    if (reps.length === 0) {
+      return null;
+    }
 
     // Forced / pinned rep: bypass ABR.
     if (this.forcedRepId) {
       const forced = reps.find(r => r.getAttribute('id') === this.forcedRepId);
-      if (forced) return forced;
+      if (forced) {
+        return forced;
+      }
       // Forced rep was removed — clear the pin and fall through to ABR.
       this.removeAttribute('forced-rep');
     }
 
     const target = bandwidth * this.abrSafetyFactor / Math.max(playbackRate, 0.01);
 
-    const sorted = [...reps].sort(
-      (a, b) => Number((a as any).bandwidth ?? 0) - Number((b as any).bandwidth ?? 0)
-    );
+    const sorted = [...reps].sort((a, b) => (a.bandwidth ?? 0) - (b.bandwidth ?? 0));
 
-    let best: Element | null = null;
+    let best: VidelRepresentation | null = null;
     for (const rep of sorted) {
-      if (Number((rep as any).bandwidth ?? 0) <= target) best = rep;
+      if ((rep.bandwidth ?? 0) <= target) {
+        best = rep;
+      }
     }
 
     return best ?? sorted[0];
   }
 
-  #performSwitch(target: Element, prev: Element | null): boolean {
-    const tRep         = target as any;
-    const targetMime   = (tRep.mimeType   || this.mimeType)  ?? '';
-    const targetCodecs = (tRep.codecs     || this.codecs)    ?? '';
-    const newMimeAndCodecs = targetCodecs
-      ? `${targetMime}; codecs="${targetCodecs}"`
-      : targetMime;
+  #performSwitch(target: VidelRepresentation, prev: VidelRepresentation | null): boolean {
+    const targetMime   = (target.mimeType || this.mimeType)  ?? '';
+    const targetCodecs = (target.codecs   || this.codecs)    ?? '';
+    const newMimeAndCodecs = targetCodecs ?
+      `${targetMime}; codecs="${targetCodecs}"` :
+      targetMime;
 
     if (prev && this.#activeMimeAndCodecs && this.#activeMimeAndCodecs !== newMimeAndCodecs) {
       trace(this, 'mse', 'change-type', {
         contentType: this.contentType,
         from: this.#activeMimeAndCodecs,
-        to:   newMimeAndCodecs,
+        to: newMimeAndCodecs
       });
       try {
         this.#sourceBuffer!.changeType(newMimeAndCodecs);
       } catch {
-        this.dispatchEvent(
-          new CustomEvent('videl:mse:incompatible', {
-            bubbles: true,
-            composed: true,
-            detail: { contentType: this.contentType, requiredCodecs: targetCodecs },
-          })
-        );
+        this.dispatchEvent(new CustomEvent('videl:mse:incompatible', {
+          bubbles: true,
+          composed: true,
+          detail: { contentType: this.contentType, requiredCodecs: targetCodecs }
+        }));
         return false;
       }
     }
 
-    const fromId = prev
-      ? ((prev as any).repId ?? (prev as any).getAttribute?.('id') ?? null)
-      : null;
-    const toId = tRep.repId ?? tRep.getAttribute?.('id') ?? null;
+    const fromId = prev ? (prev.repId ?? prev.getAttribute('id') ?? null) : null;
+    const toId   = target.repId ?? target.getAttribute('id') ?? null;
 
     trace(this, 'abr', fromId ? 'switch' : 'initial-select', {
-      contentType:   this.contentType,
-      from:          fromId,
-      to:            toId,
-      fromBandwidth: prev ? Number((prev as any).bandwidth ?? 0) : undefined,
-      toBandwidth:   Number(tRep.bandwidth ?? 0),
+      contentType: this.contentType,
+      from: fromId,
+      to: toId,
+      fromBandwidth: prev ? (prev.bandwidth ?? 0) : undefined,
+      toBandwidth: target.bandwidth ?? 0
     });
 
-    tRep.sourceBuffer = this.#sourceBuffer;
+    target.sourceBuffer = this.#sourceBuffer;
     this.activateChild(target);
     this.#activeMimeAndCodecs = newMimeAndCodecs;
 
     if (fromId !== null) {
-      this.dispatchEvent(
-        new CustomEvent('videl:representation:switched', {
-          bubbles: true,
-          composed: true,
-          detail: { from: fromId, to: toId, contentType: this.contentType },
-        })
-      );
+      this.dispatchEvent(new CustomEvent('videl:representation:switched', {
+        bubbles: true,
+        composed: true,
+        detail: { from: fromId, to: toId, contentType: this.contentType }
+      }));
     }
 
     return true;
@@ -263,15 +262,20 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
   #forwardUpdate(state: PlayerState): void {
     const active = this.#activeRepresentation;
-    if (active) (active as any).videlUpdate(state);
+    if (active) {
+      active.videlUpdate(state);
+    }
   }
 
   /** Stamp / remove the `pinned` attribute on representations to match forcedRepId. */
   #updatePinnedAttrs(): void {
     for (const rep of this.#childRepresentations) {
       const isForced = rep.getAttribute('id') === this.forcedRepId && !!this.forcedRepId;
-      if (isForced) rep.setAttribute('pinned', '');
-      else          rep.removeAttribute('pinned');
+      if (isForced) {
+        rep.setAttribute('pinned', '');
+      } else          {
+        rep.removeAttribute('pinned');
+      }
     }
   }
 
@@ -281,8 +285,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    */
   #onRepSelect = (e: Event): void => {
     const rep = (e as CustomEvent).detail?.rep as Element | undefined;
-    if (!(rep instanceof Element)) return;
-    if (!this.#childRepresentations.includes(rep)) return;
+    if (!(rep instanceof VidelRepresentation)) {
+      return;
+    }
+    if (!this.#childRepresentations.includes(rep)) {
+      return;
+    }
 
     const repId = rep.getAttribute('id') ?? '';
     this.setAttribute('forced-rep', repId); // triggers Lit update + stores forcedRepId
@@ -291,7 +299,9 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     // If active, switch immediately rather than waiting for the next pump tick.
     if (this.getAttribute('videl-state') === 'active') {
       const current = this.#activeRepresentation;
-      if (current !== rep) this.#performSwitch(rep, current);
+      if (current !== rep) {
+        this.#performSwitch(rep, current);
+      }
     }
   };
 
@@ -303,14 +313,20 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    */
   #onRepRemove = (e: Event): void => {
     const rep = (e as CustomEvent).detail?.rep as Element | undefined;
-    if (!(rep instanceof Element)) return;
-    if (!this.#childRepresentations.includes(rep)) return;
+    if (!(rep instanceof VidelRepresentation)) {
+      return;
+    }
+    if (!this.#childRepresentations.includes(rep)) {
+      return;
+    }
 
     const wasActive = rep.getAttribute('videl-state') === 'active';
     const wasForced = rep.getAttribute('id') === this.forcedRepId;
 
     rep.remove();
-    if (wasForced) this.removeAttribute('forced-rep');
+    if (wasForced) {
+      this.removeAttribute('forced-rep');
+    }
     this.#updatePinnedAttrs();
 
     // Re-run ABR immediately so there is no gap if the active rep was removed.
@@ -326,12 +342,16 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    */
   #onTrackClick = (): void => {
     // Audio and text tracks are selectable; video quality uses its own mechanism.
-    if (this.contentType !== 'audio' && this.contentType !== 'text') return;
-    if (this.getAttribute('videl-state') === 'active') return;
+    if (this.contentType !== 'audio' && this.contentType !== 'text') {
+      return;
+    }
+    if (this.getAttribute('videl-state') === 'active') {
+      return;
+    }
     this.dispatchEvent(new CustomEvent('videl:track:select', {
-      bubbles:  true,
+      bubbles: true,
       composed: true,
-      detail:   { ads: this },
+      detail: { ads: this }
     }));
   };
 
@@ -340,16 +360,14 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     if (this.#sourceBuffer && this.contentType !== 'text') {
       this.#sourceBuffer.abort().catch(() => {});
     }
-    this.dispatchEvent(
-      new CustomEvent('videl:mse:error', {
-        bubbles: true,
-        composed: true,
-        detail: {
-          contentType: this.contentType,
-          reason: detail?.error?.message ?? 'segment-error',
-        },
-      })
-    );
+    this.dispatchEvent(new CustomEvent('videl:mse:error', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        contentType: this.contentType,
+        reason: detail?.error?.message ?? 'segment-error'
+      }
+    }));
   };
 
   // ── Lit render ────────────────────────────────────────────────────────────

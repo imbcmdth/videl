@@ -17,7 +17,7 @@
  * level, not here.
  */
 
-import { findBox, iterBoxes, readUint32BE, readUint64BE, readFourcc } from './box-utils';
+import { findBox, readUint32BE, readUint64BE, readFourcc } from './box-utils';
 
 export interface TextSample {
   /**
@@ -45,8 +45,12 @@ export class Fmp4TextDemuxer {
   #timescale:      number             = 1;
   #containerCodec: TextContainerCodec = 'unknown';
 
-  get timescale():      number             { return this.#timescale;      }
-  get containerCodec(): TextContainerCodec { return this.#containerCodec; }
+  get timescale():      number             {
+    return this.#timescale;
+  }
+  get containerCodec(): TextContainerCodec {
+    return this.#containerCodec;
+  }
 
   /** Reset state so a new init segment can be parsed (e.g. after changeType). */
   reset(): void {
@@ -67,14 +71,20 @@ export class Fmp4TextDemuxer {
     const view = new DataView(buf, off, len);
 
     const moov = findBox(view, 0, len, 'moov');
-    if (!moov) return;
+    if (!moov) {
+      return;
+    }
 
     // moov → trak → mdia
     const trak = findBox(view, moov.dataStart, moov.end, 'trak');
-    if (!trak) return;
+    if (!trak) {
+      return;
+    }
 
     const mdia = findBox(view, trak.dataStart, trak.end, 'mdia');
-    if (!mdia) return;
+    if (!mdia) {
+      return;
+    }
 
     // mdhd: version(1) + flags(3) + [creation v0:4/v1:8] + [modification v0:4/v1:8] + timescale(4)
     const mdhd = findBox(view, mdia.dataStart, mdia.end, 'mdhd');
@@ -86,22 +96,30 @@ export class Fmp4TextDemuxer {
 
     // moov → trak → mdia → minf → stbl → stsd → first sample-entry fourcc
     const minf = findBox(view, mdia.dataStart, mdia.end, 'minf');
-    if (!minf) return;
+    if (!minf) {
+      return;
+    }
 
     const stbl = findBox(view, minf.dataStart, minf.end, 'stbl');
-    if (!stbl) return;
+    if (!stbl) {
+      return;
+    }
 
     const stsd = findBox(view, stbl.dataStart, stbl.end, 'stsd');
-    if (!stsd) return;
+    if (!stsd) {
+      return;
+    }
 
     // stsd: version(1) + flags(3) + entry_count(4) + [first entry: size(4) + fourcc(4) + ...]
     const firstEntryFourccOffset = stsd.dataStart + 8; // skip version/flags(4) + entry_count(4)
     if (firstEntryFourccOffset + 8 <= stsd.end) {
       const fourcc = readFourcc(view, firstEntryFourccOffset + 4);
-      this.#containerCodec =
-        fourcc === 'wvtt' ? 'wvtt' :
-        fourcc === 'stpp' ? 'stpp' :
-        'unknown';
+
+      if (fourcc === 'wvtt' || fourcc === 'stpp') {
+        this.#containerCodec = fourcc;
+      } else {
+        this.#containerCodec = 'unknown';
+      }
     }
   }
 
@@ -121,14 +139,18 @@ export class Fmp4TextDemuxer {
 
     // Find moof (may not start at offset 0 if there is a styp box first)
     const moof = findBox(view, 0, len, 'moof');
-    if (!moof) return samples;
+    if (!moof) {
+      return samples;
+    }
 
     const moofStart = moof.start;
     const moofEnd   = moof.end;
 
     // moof → traf
     const traf = findBox(view, moof.dataStart, moofEnd, 'traf');
-    if (!traf) return samples;
+    if (!traf) {
+      return samples;
+    }
 
     // ── tfhd: default sample duration/size ──────────────────────────────────
     let defaultSampleDuration = 0;
@@ -142,10 +164,18 @@ export class Fmp4TextDemuxer {
          view.getUint8(tfhd.dataStart + 3);
 
       let p = tfhd.dataStart + 8; // skip version(1)+flags(3)+track_id(4)
-      if (tfhdFlags & 0x000001) p += 8; // base_data_offset
-      if (tfhdFlags & 0x000002) p += 4; // sample_description_index
-      if (tfhdFlags & 0x000008) { defaultSampleDuration = readUint32BE(view, p); p += 4; }
-      if (tfhdFlags & 0x000010) { defaultSampleSize     = readUint32BE(view, p); }
+      if (tfhdFlags & 0x000001) {
+        p += 8;
+      } // base_data_offset
+      if (tfhdFlags & 0x000002) {
+        p += 4;
+      } // sample_description_index
+      if (tfhdFlags & 0x000008) {
+        defaultSampleDuration = readUint32BE(view, p); p += 4;
+      }
+      if (tfhdFlags & 0x000010) {
+        defaultSampleSize     = readUint32BE(view, p);
+      }
     }
 
     // ── tfdt: base media decode time ────────────────────────────────────────
@@ -154,14 +184,16 @@ export class Fmp4TextDemuxer {
     const tfdt = findBox(view, traf.dataStart, traf.end, 'tfdt');
     if (tfdt) {
       const version = view.getUint8(tfdt.dataStart);
-      baseMediaDecodeTime = version === 1
-        ? readUint64BE(view, tfdt.dataStart + 4)
-        : readUint32BE(view, tfdt.dataStart + 4);
+      baseMediaDecodeTime = version === 1 ?
+        readUint64BE(view, tfdt.dataStart + 4) :
+        readUint32BE(view, tfdt.dataStart + 4);
     }
 
     // ── trun: per-sample info ───────────────────────────────────────────────
     const trun = findBox(view, traf.dataStart, traf.end, 'trun');
-    if (!trun) return samples;
+    if (!trun) {
+      return samples;
+    }
 
     const trunFlags =
       (view.getUint8(trun.dataStart + 1) << 16) |
@@ -180,8 +212,12 @@ export class Fmp4TextDemuxer {
     let trunOffset = trun.dataStart + 8; // past version+flags+sample_count
 
     let dataOffset = 0;
-    if (dataOffsetPresent)        { dataOffset = view.getInt32(trunOffset, false); trunOffset += 4; }
-    if (firstSampleFlagsPresent)  { trunOffset += 4; }
+    if (dataOffsetPresent)        {
+      dataOffset = view.getInt32(trunOffset, false); trunOffset += 4;
+    }
+    if (firstSampleFlagsPresent)  {
+      trunOffset += 4;
+    }
 
     // Per ISO 14496-12 §8.8.8: data_offset is relative to base_data_offset
     // which defaults to the start of the enclosing Movie Fragment Box.
@@ -201,10 +237,18 @@ export class Fmp4TextDemuxer {
       let duration = defaultSampleDuration;
       let size     = defaultSampleSize;
 
-      if (sampleDurationPresent)  { duration = readUint32BE(view, trunOffset); trunOffset += 4; }
-      if (sampleSizePresent)      { size     = readUint32BE(view, trunOffset); trunOffset += 4; }
-      if (sampleFlagsPresent)     { trunOffset += 4; }
-      if (sampleCtsOffsetPresent) { trunOffset += 4; }
+      if (sampleDurationPresent)  {
+        duration = readUint32BE(view, trunOffset); trunOffset += 4;
+      }
+      if (sampleSizePresent)      {
+        size     = readUint32BE(view, trunOffset); trunOffset += 4;
+      }
+      if (sampleFlagsPresent)     {
+        trunOffset += 4;
+      }
+      if (sampleCtsOffsetPresent) {
+        trunOffset += 4;
+      }
 
       metas.push({ dt: dtAccum, duration, size });
       dtAccum += duration;
@@ -220,9 +264,9 @@ export class Fmp4TextDemuxer {
         copied.set(rawSlice);
 
         samples.push({
-          pts:      dt       / ts,
+          pts: dt       / ts,
           duration: duration / ts,
-          data:     copied,
+          data: copied
         });
       }
       byteOffset += size;

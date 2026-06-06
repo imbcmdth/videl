@@ -23,14 +23,10 @@ function icon(paths: TemplateResult): TemplateResult {
 }
 
 /** ▶ Play */
-export const ICON_PLAY: TemplateResult = icon(
-  svg`<polygon points="5 3 19 12 5 21 5 3"/>`
-);
+export const ICON_PLAY: TemplateResult = icon(svg`<polygon points="5 3 19 12 5 21 5 3"/>`);
 
 /** ⏸ Pause */
-export const ICON_PAUSE: TemplateResult = icon(
-  svg`<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`
-);
+export const ICON_PAUSE: TemplateResult = icon(svg`<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`);
 
 /** 🔊 Volume — speaker with sound waves */
 export const ICON_VOLUME: TemplateResult = icon(svg`

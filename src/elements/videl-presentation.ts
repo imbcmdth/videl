@@ -3,11 +3,12 @@ import { SequentialMixin } from '../mixins/sequential-mixin';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import { parseMpd } from '../parser/mpd-parser';
 import type { PlayerState } from '../player-state';
+import { VidelPeriod } from './videl-period';
 import {
   ICON_PLAY, ICON_PAUSE,
   ICON_VOLUME, ICON_MUTE,
   ICON_AUDIO, ICON_CAPTIONS, ICON_QUALITY,
-  ICON_FULLSCREEN, ICON_FULLSCREEN_EXIT,
+  ICON_FULLSCREEN, ICON_FULLSCREEN_EXIT
 } from '../icons';
 
 /**
@@ -57,24 +58,26 @@ import {
  *   `videl-state="active"` → self-populate if needed, then activate first period.
  *   `videl-state` removed  → abort in-flight fetch; cascade-deactivate periods.
  */
-export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) as any) {
+// The `as any` cast is required by TypeScript's mixin composition limitations —
+// the chained return types cannot be verified statically without it.
+export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) as any) { // eslint-disable-line @typescript-eslint/no-explicit-any
   static properties = {
-    src:                       { type: String },
-    duration:                  { type: Number },
+    src: { type: String },
+    duration: { type: Number },
     mediaPresentationDuration: { type: Number,  attribute: 'media-presentation-duration' },
-    minBufferTime:             { type: Number,  attribute: 'min-buffer-time' },
-    presentationType:          { type: String,  attribute: 'type' },
-    slot:                      { type: String,  reflect: true },
-    debug:                     { type: Boolean },
+    minBufferTime: { type: Number,  attribute: 'min-buffer-time' },
+    presentationType: { type: String,  attribute: 'type' },
+    slot: { type: String,  reflect: true },
+    debug: { type: Boolean },
     // Pump-driven playback state (not reflected to attributes — internal only).
-    currentTime:               { type: Number,  attribute: false },
-    paused:                    { type: Boolean, attribute: false },
-    volume:                    { type: Number,  attribute: false },
-    muted:                     { type: Boolean, attribute: false },
+    currentTime: { type: Number,  attribute: false },
+    paused: { type: Boolean, attribute: false },
+    volume: { type: Number,  attribute: false },
+    muted: { type: Boolean, attribute: false },
     // Which informational menu the control bar has open (drives the active period).
-    menuOpen:                  { type: String,  attribute: false },
+    menuOpen: { type: String,  attribute: false },
     // Mirrors document.fullscreenElement so the icon toggles reactively.
-    fullscreen:                { type: Boolean, attribute: false },
+    fullscreen: { type: Boolean, attribute: false }
   };
 
   src                        = '';
@@ -121,11 +124,15 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'videl-state') return;
+    if (name !== 'videl-state') {
+      return;
+    }
 
     if (value === 'next') {
       // Prefetch: populate so the manifest is ready before activation.
-      if (this.src && !this.#populated) this.#ensurePopulated();
+      if (this.src && !this.#populated) {
+        this.#ensurePopulated();
+      }
     } else if (value === 'active') {
       if (this.src && !this.#populated) {
         // No prior prefetch — populate inline, then activate.
@@ -153,7 +160,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * as reactive properties so the Lit render() can update controls.
    */
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('videl-state') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
 
     // Stamp UI state. NOTE: with `useDefineForClassFields: true` these class
     // fields shadow Lit's reactive accessors, so assignment alone does not
@@ -165,16 +174,16 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     this.muted       = state.muted;
     (this as unknown as LitElement).requestUpdate();
 
-    const active = this.#childPeriods.find(
-      p => p.getAttribute('videl-state') === 'active'
-    );
+    const active = this.#childPeriods.find(p => p.getAttribute('videl-state') === 'active');
     if (active) {
       // Keep the open menu attached to whichever period is currently active
       // (periods advance sequentially; the attribute does not follow on its own).
       if (this.menuOpen && active.getAttribute('menu-open') !== this.menuOpen) {
         active.setAttribute('menu-open', this.menuOpen);
       }
-      (active as any).videlUpdate(state);
+      if (active instanceof VidelPeriod) {
+        active.videlUpdate(state);
+      }
     }
   }
 
@@ -190,9 +199,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childPeriods(): Element[] {
-    return Array.from((this as unknown as HTMLElement).children).filter(
-      (el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period'
-    ) as Element[];
+    return Array.from((this as unknown as HTMLElement).children).filter((el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period') as Element[];
   }
 
   /** Check if there are any adaptation sets of a given content type. */
@@ -210,12 +217,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   #activateFirstPeriod(): void {
     const first = this.#childPeriods[0];
-    if (first) this.activateChild(first);
+    if (first) {
+      this.activateChild(first);
+    }
   }
 
   #ensurePopulated(): Promise<void> {
-    if (this.#populated) return Promise.resolve();
-    if (this.#populatePromise) return this.#populatePromise;
+    if (this.#populated) {
+      return Promise.resolve();
+    }
+    if (this.#populatePromise) {
+      return this.#populatePromise;
+    }
     this.#populatePromise = this.#populate().finally(() => {
       this.#populatePromise = null;
     });
@@ -231,12 +244,16 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * `min-buffer-time`, `type`) are stamped onto this element after parsing.
    */
   async #populate(): Promise<void> {
-    if (!this.src) return;
+    if (!this.src) {
+      return;
+    }
 
     this.#fetchController = new AbortController();
     try {
       const response = await fetch(this.src, { signal: this.#fetchController.signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status} fetching ${this.src}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} fetching ${this.src}`);
+      }
       const xml = await response.text();
 
       const self    = this as unknown as HTMLElement;
@@ -260,21 +277,27 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       const dur    = subtree.getAttribute('media-presentation-duration');
       const minBuf = subtree.getAttribute('min-buffer-time');
       const type   = subtree.getAttribute('type');
-      if (dur)    self.setAttribute('media-presentation-duration', dur);
-      if (minBuf) self.setAttribute('min-buffer-time', minBuf);
-      if (type)   self.setAttribute('type', type);
+      if (dur)    {
+        self.setAttribute('media-presentation-duration', dur);
+      }
+      if (minBuf) {
+        self.setAttribute('min-buffer-time', minBuf);
+      }
+      if (type)   {
+        self.setAttribute('type', type);
+      }
 
       this.#populated = true;
 
     } catch (err: unknown) {
-      if ((err as any)?.name === 'AbortError') return;
-      (this as unknown as HTMLElement).dispatchEvent(
-        new CustomEvent('videl:segment:error', {
-          bubbles:  true,
-          composed: true,
-          detail:   { error: err instanceof Error ? err : new Error(String(err)) },
-        })
-      );
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      (this as unknown as HTMLElement).dispatchEvent(new CustomEvent('videl:segment:error', {
+        bubbles: true,
+        composed: true,
+        detail: { error: err instanceof Error ? err : new Error(String(err)) }
+      }));
     } finally {
       this.#fetchController = null;
     }
@@ -288,36 +311,40 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   #onPeriodDone = (event: Event): void => {
     const target = event.target as Element;
     const self   = this as unknown as HTMLElement;
-    if (target.parentElement !== self) return;
-    if (target.tagName.toLowerCase() !== 'videl-period') return;
+    if (target.parentElement !== self) {
+      return;
+    }
+    if (target.tagName.toLowerCase() !== 'videl-period') {
+      return;
+    }
     // If a next period sibling exists, SequentialMixin already activated it.
     let nextPeriod = target.nextElementSibling;
     while (nextPeriod && nextPeriod.tagName.toLowerCase() !== 'videl-period') {
       nextPeriod = nextPeriod.nextElementSibling;
     }
-    if (nextPeriod !== null) return;
+    if (nextPeriod !== null) {
+      return;
+    }
 
-    self.dispatchEvent(
-      new CustomEvent('videl:done', {
-        bubbles:  true,
-        composed: true,
-        detail:   { src: (this as any).src },
-      })
-    );
+    self.dispatchEvent(new CustomEvent('videl:done', {
+      bubbles: true,
+      composed: true,
+      detail: { src: this.src }
+    }));
   };
 
   // ── UI event dispatchers ──────────────────────────────────────────────────
 
   #onClickZone = (): void => {
     this.dispatchEvent(new CustomEvent('videl:ui:play-pause', {
-      bubbles: true, composed: true,
+      bubbles: true, composed: true
     }));
   };
 
   #onPlayPause = (e: Event): void => {
     e.stopPropagation(); // click-zone above would double-fire otherwise
     this.dispatchEvent(new CustomEvent('videl:ui:play-pause', {
-      bubbles: true, composed: true,
+      bubbles: true, composed: true
     }));
   };
 
@@ -327,7 +354,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     if (dur > 0) {
       this.dispatchEvent(new CustomEvent('videl:ui:seek', {
         bubbles: true, composed: true,
-        detail: { time: frac * dur },
+        detail: { time: frac * dur }
       }));
     }
   };
@@ -336,22 +363,20 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     const vol = Number((e.target as HTMLInputElement).value);
     this.dispatchEvent(new CustomEvent('videl:ui:volume', {
       bubbles: true, composed: true,
-      detail: { volume: vol },
+      detail: { volume: vol }
     }));
   };
 
   #onMuteToggle = (e: Event): void => {
     e.stopPropagation();
     this.dispatchEvent(new CustomEvent('videl:ui:mute-toggle', {
-      bubbles: true, composed: true,
+      bubbles: true, composed: true
     }));
   };
 
   /** Currently active period element, if any. */
   get #activePeriod(): Element | null {
-    return this.#childPeriods.find(
-      p => p.getAttribute('videl-state') === 'active'
-    ) ?? null;
+    return this.#childPeriods.find(p => p.getAttribute('videl-state') === 'active') ?? null;
   }
 
   /**
@@ -375,7 +400,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   /** Close the open menu and detach the outside-click listener. */
   #closeMenu(): void {
-    if (!this.menuOpen) return;
+    if (!this.menuOpen) {
+      return;
+    }
     this.menuOpen = null;
     this.#activePeriod?.removeAttribute('menu-open');
     document.removeEventListener('pointerdown', this.#onDocPointerDown, true);
@@ -390,12 +417,14 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * controls therefore close the menu (and still perform their action).
    */
   #onDocPointerDown = (e: Event): void => {
-    if (!this.menuOpen) return;
-    const insideMenu = e.composedPath().some(
-      n => n instanceof Element &&
-        (n.classList.contains('menu-btn') || n.classList.contains('menu'))
-    );
-    if (!insideMenu) this.#closeMenu();
+    if (!this.menuOpen) {
+      return;
+    }
+    const insideMenu = e.composedPath().some(n => n instanceof Element &&
+        (n.classList.contains('menu-btn') || n.classList.contains('menu')));
+    if (!insideMenu) {
+      this.#closeMenu();
+    }
   };
 
   #onAudioMenu   = (e: Event): void => this.#toggleMenu('audio', e);
@@ -414,16 +443,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   #onFullscreenChange = (): void => {
     const player = this.closest('videl-player');
-    this.fullscreen = player
-      ? document.fullscreenElement === player
-      : document.fullscreenElement !== null;
+    this.fullscreen = player ?
+      document.fullscreenElement === player :
+      document.fullscreenElement !== null;
     (this as unknown as LitElement).requestUpdate();
   };
 
   // ── UI helpers ────────────────────────────────────────────────────────────
 
   #formatTime(s: number): string {
-    if (!isFinite(s) || s < 0) return '--:--';
+    if (!isFinite(s) || s < 0) {
+      return '--:--';
+    }
     const m   = Math.floor(s / 60);
     const sec = Math.floor(s % 60).toString().padStart(2, '0');
     return `${m}:${sec}`;

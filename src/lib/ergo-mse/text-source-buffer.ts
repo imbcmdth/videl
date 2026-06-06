@@ -32,29 +32,41 @@ import { parseStppSample } from '../ttml/parser';
 // ── VTT settings → VTTCue properties ──────────────────────────────────────────
 
 function applyCueSettings(cue: VTTCue, settings: string): void {
-  if (!settings.trim()) return;
+  if (!settings.trim()) {
+    return;
+  }
   for (const token of settings.trim().split(/\s+/)) {
     const [key, val] = token.split(':');
-    if (!key || !val) continue;
+    if (!key || !val) {
+      continue;
+    }
     switch (key.toLowerCase()) {
       case 'line': {
         const n = parseFloat(val);
-        if (!isNaN(n)) cue.line = n;
+        if (!isNaN(n)) {
+          cue.line = n;
+        }
         break;
       }
       case 'position': {
         const n = parseFloat(val);
-        if (!isNaN(n)) cue.position = n;
+        if (!isNaN(n)) {
+          cue.position = n;
+        }
         break;
       }
       case 'size': {
         const n = parseFloat(val);
-        if (!isNaN(n)) cue.size = n;
+        if (!isNaN(n)) {
+          cue.size = n;
+        }
         break;
       }
       case 'align': {
         const v = val.toLowerCase() as AlignSetting;
-        if (['start','center','end','left','right'].includes(v)) cue.align = v;
+        if (['start', 'center', 'end', 'left', 'right'].includes(v)) {
+          cue.align = v;
+        }
         break;
       }
     }
@@ -63,12 +75,10 @@ function applyCueSettings(cue: VTTCue, settings: string): void {
 
 // ── TextSourceBuffer ──────────────────────────────────────────────────────────
 
-interface QueueEntry {
-  kind:    'append' | 'remove' | 'abort';
-  args:    any[];
-  resolve: () => void;
-  reject:  (err: Error) => void;
-}
+type QueueEntry =
+  | { kind: 'append'; data: ArrayBuffer | ArrayBufferView; resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'remove'; start: number; end: number;           resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'abort';                                         resolve: () => void; reject: (e: Error) => void };
 
 export class TextSourceBuffer implements ISourceBuffer {
   readonly textTrack: TextTrack;
@@ -96,7 +106,7 @@ export class TextSourceBuffer implements ISourceBuffer {
     videoEl:   HTMLVideoElement,
     label:     string,
     lang:      string,
-    codecHint: string = '',
+    codecHint: string = ''
   ) {
     this.textTrack      = videoEl.addTextTrack('subtitles', label, lang);
     this.textTrack.mode = 'hidden';
@@ -105,7 +115,9 @@ export class TextSourceBuffer implements ISourceBuffer {
 
   // ── ISourceBuffer ─────────────────────────────────────────────────────────
 
-  get updating(): boolean { return this.#updating; }
+  get updating(): boolean {
+    return this.#updating;
+  }
 
   get buffered(): TimeRanges {
     return this.#bufferedRanges as unknown as TimeRanges;
@@ -113,14 +125,14 @@ export class TextSourceBuffer implements ISourceBuffer {
 
   async append(data: ArrayBuffer | ArrayBufferView): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.#queue.push({ kind: 'append', args: [data], resolve, reject });
+      this.#queue.push({ kind: 'append', data, resolve, reject });
       this.#pump();
     });
   }
 
   async remove(start: number, end: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.#queue.push({ kind: 'remove', args: [start, end], resolve, reject });
+      this.#queue.push({ kind: 'remove', start, end, resolve, reject });
       this.#pump();
     });
   }
@@ -129,10 +141,14 @@ export class TextSourceBuffer implements ISourceBuffer {
     return new Promise<void>((resolve, reject) => {
       const startIdx = this.#isProcessing ? 1 : 0;
       const drained  = this.#queue.splice(startIdx);
-      for (const op of drained) op.reject(new Error('Aborted'));
+      for (const op of drained) {
+        op.reject(new Error('Aborted'));
+      }
 
-      if (!this.#isProcessing) { resolve(); return; }
-      this.#queue.push({ kind: 'abort', args: [], resolve, reject });
+      if (!this.#isProcessing) {
+        resolve(); return;
+      }
+      this.#queue.push({ kind: 'abort', resolve, reject });
     });
   }
 
@@ -148,13 +164,19 @@ export class TextSourceBuffer implements ISourceBuffer {
     this.#demuxer.reset();
   }
 
-  show(): void { this.textTrack.mode = 'showing'; }
-  hide(): void { this.textTrack.mode = 'hidden';  }
+  show(): void {
+    this.textTrack.mode = 'showing';
+  }
+  hide(): void {
+    this.textTrack.mode = 'hidden';
+  }
 
   // ── Queue pump ────────────────────────────────────────────────────────────
 
   #pump(): void {
-    if (this.#isProcessing || this.#queue.length === 0) return;
+    if (this.#isProcessing || this.#queue.length === 0) {
+      return;
+    }
 
     this.#isProcessing = true;
     this.#updating     = true;
@@ -163,16 +185,18 @@ export class TextSourceBuffer implements ISourceBuffer {
     Promise.resolve().then(() => {
       try {
         switch (op.kind) {
-          case 'append': this.#doAppend(op.args[0] as ArrayBuffer | ArrayBufferView); break;
-          case 'remove': this.#doRemove(op.args[0] as number, op.args[1] as number);  break;
-          case 'abort':  break;
+          case 'append': this.#doAppend(op.data);             break;
+          case 'remove': this.#doRemove(op.start, op.end);    break;
+          case 'abort':                                        break;
         }
         op.resolve();
       } catch (err) {
         const ops = this.#queue.splice(0);
         this.#isProcessing = false;
         this.#updating     = false;
-        for (const o of ops) o.reject(err as Error);
+        for (const o of ops) {
+          o.reject(err as Error);
+        }
         return;
       }
 
@@ -189,6 +213,7 @@ export class TextSourceBuffer implements ISourceBuffer {
     switch (this.#codecClass.kind) {
       case 'stpp-image':
         if (!this.#warnedImage) {
+        // eslint-disable-next-line no-console
           console.warn('[videl] TextSourceBuffer: image-based TTML (stpp-image) is not supported — segments will be silently discarded.');
           this.#warnedImage = true;
         }
@@ -196,6 +221,7 @@ export class TextSourceBuffer implements ISourceBuffer {
 
       case 'unknown':
         if (!this.#warnedUnknown) {
+        // eslint-disable-next-line no-console
           console.warn('[videl] TextSourceBuffer: unknown codec — segments will be silently discarded. Classify via the MPD codecs attribute.');
           this.#warnedUnknown = true;
         }
@@ -227,7 +253,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     }
 
     const textSamples = this.#demuxer.parseMedia(data);
-    if (textSamples.length === 0) return;
+    if (textSamples.length === 0) {
+      return;
+    }
 
     let minPts = Infinity;
     let maxEnd = -Infinity;
@@ -247,8 +275,12 @@ export class TextSourceBuffer implements ISourceBuffer {
           applyCueSettings(vtCue, cue.settings);
           this.textTrack.addCue(vtCue);
         }
-        if (presentationTime < minPts) minPts = presentationTime;
-        if (endTime > maxEnd)          maxEnd = endTime;
+        if (presentationTime < minPts) {
+          minPts = presentationTime;
+        }
+        if (endTime > maxEnd)          {
+          maxEnd = endTime;
+        }
       } else {
         // stpp-text (stpp, im1t, im2t, etd1):
         // begin/end in the TTML document are ABSOLUTE presentation times, not
@@ -260,13 +292,19 @@ export class TextSourceBuffer implements ISourceBuffer {
         for (const c of cues) {
           const cueStart = c.begin + this.timestampOffset;
           const cueEnd   = c.end   + this.timestampOffset;
-          if (cueStart >= cueEnd) continue;
+          if (cueStart >= cueEnd) {
+            continue;
+          }
           this.#removeCuesInRange(cueStart, cueEnd);
           const vtCue = new VTTCue(cueStart, cueEnd, c.payload);
           vtCue.id    = c.id;
           this.textTrack.addCue(vtCue);
-          if (cueStart < minPts) minPts = cueStart;
-          if (cueEnd   > maxEnd) maxEnd = cueEnd;
+          if (cueStart < minPts) {
+            minPts = cueStart;
+          }
+          if (cueEnd   > maxEnd) {
+            maxEnd = cueEnd;
+          }
         }
       }
     }
@@ -291,7 +329,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     const bytes = new Uint8Array(buf, off, len);
 
     const cues = parseVttFile(bytes);
-    if (cues.length === 0) return;
+    if (cues.length === 0) {
+      return;
+    }
 
     let minPts = Infinity;
     let maxEnd = -Infinity;
@@ -299,7 +339,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     for (const c of cues) {
       const startTime = c.startTime + this.timestampOffset;
       const endTime   = c.endTime   + this.timestampOffset;
-      if (startTime >= endTime) continue;
+      if (startTime >= endTime) {
+        continue;
+      }
 
       this.#removeCuesInRange(startTime, endTime);
 
@@ -308,11 +350,17 @@ export class TextSourceBuffer implements ISourceBuffer {
       applyCueSettings(vtCue, c.settings);
       this.textTrack.addCue(vtCue);
 
-      if (startTime < minPts) minPts = startTime;
-      if (endTime   > maxEnd) maxEnd = endTime;
+      if (startTime < minPts) {
+        minPts = startTime;
+      }
+      if (endTime   > maxEnd) {
+        maxEnd = endTime;
+      }
     }
 
-    if (minPts < Infinity) this.#bufferedRanges.add(minPts, maxEnd);
+    if (minPts < Infinity) {
+      this.#bufferedRanges.add(minPts, maxEnd);
+    }
   }
 
   /**
@@ -330,7 +378,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     // parseStppSample returns relative begin/end. For sidecar TTML those values
     // ARE the absolute presentation times (equivalent to pts=0 fMP4 sample).
     const cues = parseStppSample(bytes);
-    if (cues.length === 0) return;
+    if (cues.length === 0) {
+      return;
+    }
 
     let minPts = Infinity;
     let maxEnd = -Infinity;
@@ -338,7 +388,9 @@ export class TextSourceBuffer implements ISourceBuffer {
     for (const c of cues) {
       const startTime = c.begin + this.timestampOffset;
       const endTime   = c.end   + this.timestampOffset;
-      if (startTime >= endTime) continue;
+      if (startTime >= endTime) {
+        continue;
+      }
 
       this.#removeCuesInRange(startTime, endTime);
 
@@ -346,11 +398,17 @@ export class TextSourceBuffer implements ISourceBuffer {
       vtCue.id    = c.id;
       this.textTrack.addCue(vtCue);
 
-      if (startTime < minPts) minPts = startTime;
-      if (endTime   > maxEnd) maxEnd = endTime;
+      if (startTime < minPts) {
+        minPts = startTime;
+      }
+      if (endTime   > maxEnd) {
+        maxEnd = endTime;
+      }
     }
 
-    if (minPts < Infinity) this.#bufferedRanges.add(minPts, maxEnd);
+    if (minPts < Infinity) {
+      this.#bufferedRanges.add(minPts, maxEnd);
+    }
   }
 
   #doRemove(start: number, end: number): void {
@@ -360,13 +418,19 @@ export class TextSourceBuffer implements ISourceBuffer {
 
   #removeCuesInRange(start: number, end: number): void {
     const cues = this.textTrack.cues;
-    if (!cues || cues.length === 0) return;
+    if (!cues || cues.length === 0) {
+      return;
+    }
 
     const toRemove: TextTrackCue[] = [];
     for (let i = 0; i < cues.length; i++) {
       const c = cues[i];
-      if (c.startTime < end && c.endTime > start) toRemove.push(c);
+      if (c.startTime < end && c.endTime > start) {
+        toRemove.push(c);
+      }
     }
-    for (const c of toRemove) this.textTrack.removeCue(c);
+    for (const c of toRemove) {
+      this.textTrack.removeCue(c);
+    }
   }
 }

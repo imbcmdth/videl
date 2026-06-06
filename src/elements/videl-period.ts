@@ -1,6 +1,7 @@
 import { LitElement, html, nothing } from 'lit';
 import { PickNMixin } from '../mixins/pick-n-mixin';
 import type { PlayerState } from '../player-state';
+import { VidelAdaptationSet } from './videl-adaptation-set';
 
 /**
  * `<videl-period>` — owns a set of `<videl-adaptation-set>` children and
@@ -22,10 +23,10 @@ import type { PlayerState } from '../player-state';
 export class VidelPeriod extends PickNMixin(LitElement) {
   static properties = {
     periodId: { type: String,  attribute: 'period-id' },
-    start:    { type: Number },
+    start: { type: Number },
     duration: { type: Number },
-    slot:     { type: String,  reflect: true },
-    debug:    { type: Boolean },
+    slot: { type: String,  reflect: true },
+    debug: { type: Boolean },
     /**
      * Which informational menu is currently revealed: `"audio"`, `"text"`,
      * or `"quality"`. Set by the parent `<videl-presentation>` control bar
@@ -33,7 +34,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
      * no menu open. Purely a visual-composition concern — independent of
      * `videl-state` (ADR-0002).
      */
-    menuOpen: { type: String, attribute: 'menu-open' },
+    menuOpen: { type: String, attribute: 'menu-open' }
   };
 
   periodId = '';
@@ -83,7 +84,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     // PickNMixin + LitElement super chain (cascade deactivation when videl-state removed).
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'videl-state') return;
+    if (name !== 'videl-state') {
+      return;
+    }
 
     if (value === 'active') {
       this.#activateAll();
@@ -93,7 +96,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       // Reset completion flag so re-activation works correctly.
       this.#doneEmitted = false;
       // Close any open menu — a deactivated period must not keep a popup open.
-      if (this.hasAttribute('menu-open')) this.removeAttribute('menu-open');
+      if (this.hasAttribute('menu-open')) {
+        this.removeAttribute('menu-open');
+      }
     }
   }
 
@@ -107,26 +112,26 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    *    `videl:done` exactly once.
    */
   videlUpdate(state: PlayerState): void {
-    if (this.getAttribute('videl-state') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
 
     this.#lastCurrentTime = state.currentTime;
 
     // Fan out to all active adaptation sets.
     for (const ads of this.#activeAdaptationSets) {
-      (ads as any).videlUpdate(state);
+      ads.videlUpdate(state);
     }
 
     // Period-end check — only when duration is explicitly set.
     if (!this.#doneEmitted && this.duration !== null) {
       if (state.currentTime >= this.start + this.duration) {
         this.#doneEmitted = true;
-        this.dispatchEvent(
-          new CustomEvent('videl:done', {
-            bubbles:  true,
-            composed: true,
-            detail:   { periodId: this.periodId },
-          })
-        );
+        this.dispatchEvent(new CustomEvent('videl:done', {
+          bubbles: true,
+          composed: true,
+          detail: { periodId: this.periodId }
+        }));
       }
     }
   }
@@ -137,28 +142,24 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * Given a list of `<videl-adaptation-set>` candidates sharing the same
    * `content-type`, return the one to activate. Default: first in DOM order.
    */
-  selectAdaptationSet(_contentType: string, candidates: Element[]): Element | null {
+  selectAdaptationSet(_contentType: string, candidates: VidelAdaptationSet[]): VidelAdaptationSet | null {
     return candidates[0] ?? null;
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  get #childAdaptationSets(): Element[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-adaptation-set'
-    );
+  get #childAdaptationSets(): VidelAdaptationSet[] {
+    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-adaptation-set') as VidelAdaptationSet[];
   }
 
   /** All adaptation-set children that are currently active. */
-  get #activeAdaptationSets(): Element[] {
-    return this.#childAdaptationSets.filter(
-      el => el.getAttribute('videl-state') === 'active'
-    );
+  get #activeAdaptationSets(): VidelAdaptationSet[] {
+    return this.#childAdaptationSets.filter(el => el.getAttribute('videl-state') === 'active');
   }
 
   /** Group adaptation-set children by their `content-type` attribute. */
-  #groupByContentType(): Map<string, Element[]> {
-    const map = new Map<string, Element[]>();
+  #groupByContentType(): Map<string, VidelAdaptationSet[]> {
+    const map = new Map<string, VidelAdaptationSet[]>();
     for (const child of this.#childAdaptationSets) {
       const key    = child.getAttribute('content-type') ?? 'video';
       const bucket = map.get(key);
@@ -177,7 +178,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   #activateAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
       const chosen = this.selectAdaptationSet(contentType, candidates);
-      if (chosen) this.activateChild(chosen);
+      if (chosen) {
+        this.activateChild(chosen);
+      }
     }
   }
 
@@ -185,7 +188,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   #preloadAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
       const chosen = this.selectAdaptationSet(contentType, candidates);
-      if (chosen) this.preloadChild(chosen);
+      if (chosen) {
+        this.preloadChild(chosen);
+      }
     }
   }
 
@@ -209,22 +214,28 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    */
   #onTrackSelect = (e: Event): void => {
     const newAds = (e as CustomEvent).detail?.ads as Element | undefined;
-    if (!(newAds instanceof Element)) return;
+    if (!(newAds instanceof Element)) {
+      return;
+    }
     // Only respond to events from direct children of THIS period.
-    if (newAds.parentElement !== (this as unknown as HTMLElement)) return;
+    if (newAds.parentElement !== (this as unknown as HTMLElement)) {
+      return;
+    }
 
     const ct = newAds.getAttribute('content-type');
-    if (ct !== 'audio' && ct !== 'text') return;
+    if (ct !== 'audio' && ct !== 'text') {
+      return;
+    }
     // Already active — no-op.
-    if (newAds.getAttribute('videl-state') === 'active') return;
+    if (newAds.getAttribute('videl-state') === 'active') {
+      return;
+    }
 
     // Trim the currently active ADS's source buffer from currentTime so the
     // new track starts from the playhead rather than the buffer's end.
-    const currentActive = this.#childAdaptationSets.find(
-      a => a.getAttribute('content-type') === ct &&
-           a.getAttribute('videl-state') === 'active'
-    );
-    const sb = (currentActive as any)?.sourceBuffer;
+    const currentActive = this.#childAdaptationSets.find(a => a.getAttribute('content-type') === ct &&
+           a.getAttribute('videl-state') === 'active');
+    const sb = currentActive?.sourceBuffer;
     if (sb) {
       sb.remove(this.#lastCurrentTime, Infinity).catch(() => {});
     }
@@ -243,9 +254,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     this.#applyFlexGrow();
 
     const titles: Record<string, string> = {
-      audio:   'Audio',
-      text:    'Subtitles',
-      quality: 'Quality',
+      audio: 'Audio',
+      text: 'Subtitles',
+      quality: 'Quality'
     };
     const title = this.menuOpen ? (titles[this.menuOpen] ?? this.menuOpen) : '';
 

@@ -50,38 +50,45 @@ export function parseStppSample(data: Uint8Array): StppCueData[] {
     return [];
   }
 
-  if (doc.querySelector('parsererror')) return [];
+  if (doc.querySelector('parsererror')) {
+    return [];
+  }
 
   if (doc.querySelector('image') || doc.querySelector('*|image')) {
+    // eslint-disable-next-line no-console
     console.warn('[videl] stpp sample contains <image> elements — image-based TTML is not supported in V1; skipping sample.');
     return [];
   }
 
-  const paragraphs = Array.from<Element>(
-    doc.getElementsByTagNameNS(TTML_NS, 'p').length > 0
-      ? doc.getElementsByTagNameNS(TTML_NS, 'p')
-      : doc.getElementsByTagName('p'),
-  );
+  const paragraphs = Array.from<Element>(doc.getElementsByTagNameNS(TTML_NS, 'p').length > 0 ?
+    doc.getElementsByTagNameNS(TTML_NS, 'p') :
+    doc.getElementsByTagName('p'));
 
   const cues: StppCueData[] = [];
 
   for (const p of paragraphs) {
     const beginStr = p.getAttribute('begin');
     const endStr   = p.getAttribute('end');
-    if (!beginStr || !endStr) continue;
+    if (!beginStr || !endStr) {
+      continue;
+    }
 
     const begin = parseTtmlTime(beginStr);
     const end   = parseTtmlTime(endStr);
-    if (begin === null || end === null || end <= begin) continue;
+    if (begin === null || end === null || end <= begin) {
+      continue;
+    }
 
     const payload = extractText(p).trim();
-    if (!payload) continue;
+    if (!payload) {
+      continue;
+    }
 
     cues.push({
-      id:      p.getAttribute('xml:id') ?? p.getAttribute('id') ?? '',
+      id: p.getAttribute('xml:id') ?? p.getAttribute('id') ?? '',
       payload,
       begin,
-      end,
+      end
     });
   }
 
@@ -132,7 +139,9 @@ function extractText(el: Element): string {
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === Node.TEXT_NODE) {
       const t = node.textContent ?? '';
-      if (t.trim()) parts.push(t);
+      if (t.trim()) {
+        parts.push(t);
+      }
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const child = node as Element;
       const localName = child.localName.toLowerCase();
@@ -140,7 +149,9 @@ function extractText(el: Element): string {
         parts.push('\n');
       } else {
         const inner = extractText(child);
-        if (inner) parts.push(inner);
+        if (inner) {
+          parts.push(inner);
+        }
       }
     }
   }

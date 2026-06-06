@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from '../lib/ergo-mse';
+import { VidelSegment } from './videl-segment';
 import { trace } from '../trace';
 
 // ---------------------------------------------------------------------------
@@ -86,13 +87,13 @@ function bufferEndNear(t: number, buffered: TimeRanges): number | null {
  */
 export class VidelRepresentation extends PickOneMixin(LitElement) {
   static properties = {
-    repId:                   { type: String,  attribute: 'id' },
-    bandwidth:               { type: Number },
-    width:                   { type: Number },
-    height:                  { type: Number },
-    codecs:                  { type: String },
-    mimeType:                { type: String,  attribute: 'mime-type' },
-    initializationUrl:       { type: String,  attribute: 'initialization-url' },
+    repId: { type: String,  attribute: 'id' },
+    bandwidth: { type: Number },
+    width: { type: Number },
+    height: { type: Number },
+    codecs: { type: String },
+    mimeType: { type: String,  attribute: 'mime-type' },
+    initializationUrl: { type: String,  attribute: 'initialization-url' },
     initializationByteRange: { type: String,  attribute: 'initialization-byte-range' },
     /**
      * Presentation-time offset stamped by the MPD parser:
@@ -101,11 +102,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
      * to align the media decode timeline with the MSE presentation timeline.
      * Absent (default 0) when @presentationTimeOffset is zero or not specified.
      */
-    timestampOffset:         { type: Number,  attribute: 'timestamp-offset' },
-    slot:                    { type: String,  reflect: true },
+    timestampOffset: { type: Number,  attribute: 'timestamp-offset' },
+    slot: { type: String,  reflect: true },
     /** Set by the parent adaptation-set when this rep is manually pinned. */
-    pinned:                  { type: Boolean },
-    debug:                   { type: Boolean },
+    pinned: { type: Boolean },
+    debug: { type: Boolean }
   };
 
   repId                    = '';
@@ -125,10 +126,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
   #sourceBuffer: ISourceBuffer | null = null;
 
-  get sourceBuffer(): ISourceBuffer | null { return this.#sourceBuffer; }
+  get sourceBuffer(): ISourceBuffer | null {
+    return this.#sourceBuffer;
+  }
 
   set sourceBuffer(val: ISourceBuffer | null) {
-    if (val === this.#sourceBuffer) return;
+    if (val === this.#sourceBuffer) {
+      return;
+    }
     this.#initController?.abort();
     this.#initController = null;
     this.#initPromise    = null;
@@ -201,7 +206,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'videl-state') return;
+    if (name !== 'videl-state') {
+      return;
+    }
 
     if (value === 'next' || value === 'active') {
       this.#startInit();
@@ -221,9 +228,15 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   // ── Pump method ───────────────────────────────────────────────────────────
 
   videlUpdate(state: PlayerState): void {
-    if (!this.#initAppended) return;
-    if (this.getAttribute('videl-state') !== 'active') return;
-    if (!this.#sourceBuffer) return;
+    if (!this.#initAppended) {
+      return;
+    }
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
+    if (!this.#sourceBuffer) {
+      return;
+    }
 
     const contentType = this.closest('videl-adaptation-set')
       ?.getAttribute('content-type') ?? '';
@@ -250,9 +263,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       bufferedAhead(currentTime, sbBuffered) < 0.1
     ) {
       trace(this, 'timeline', 'seek-reset', {
-        from:  +this.#lastCurrentTime.toFixed(3),
-        to:    +currentTime.toFixed(3),
-        delta: +(currentTime - this.#lastCurrentTime).toFixed(3),
+        from: +this.#lastCurrentTime.toFixed(3),
+        to: +currentTime.toFixed(3),
+        delta: +(currentTime - this.#lastCurrentTime).toFixed(3)
       });
       this.#fetchedSegments.clear();
       this.#timelineDrift = 0;
@@ -264,29 +277,33 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     if (ahead >= bufferAhead) {
       trace(this, 'pump', 'buffer-full', {
         bufferedAhead: +ahead.toFixed(2),
-        bufferAhead,
+        bufferAhead
       });
       return;
     }
 
     const segs = this.#childSegments;
-    if (segs.length === 0) return;
+    if (segs.length === 0) {
+      return;
+    }
 
     // Find the segment whose effective time range covers currentTime.
     // "Effective" start = declared startTime + cumulative timeline drift.
     // Using drift-adjusted times ensures the walk stays aligned after appends
     // produce slightly different durations than the manifest declared.
-    let startIdx = segs.findIndex((s: any) => {
-      const eff = (s.startTime as number) + this.#timelineDrift;
-      return eff <= currentTime + 0.1 && currentTime < eff + (s.duration as number);
+    let startIdx = segs.findIndex((s) => {
+      const eff = s.startTime + this.#timelineDrift;
+      return eff <= currentTime + 0.1 && currentTime < eff + s.duration;
     });
     if (startIdx < 0) {
       // currentTime is before the first segment or the timeline hasn't shifted
       // enough — start from segment 0 if we haven't passed it, else give up.
-      const firstEff = ((segs[0] as any).startTime as number) + this.#timelineDrift;
+      const firstEff = (segs[0]?.startTime ?? 0) + this.#timelineDrift;
       startIdx = currentTime + 0.1 < firstEff ? 0 : -1;
     }
-    if (startIdx < 0) return;
+    if (startIdx < 0) {
+      return;
+    }
 
     // Walk forward from startIdx, skipping segments that are already handled.
     // A segment is handled if:
@@ -297,26 +314,28 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     // content that arrived from a prior session or ABR switch (b).
     let targetIdx = startIdx;
     while (targetIdx < segs.length) {
-      const s: any = segs[targetIdx];
-      const eff    = (s.startTime as number) + this.#timelineDrift;
+      const s   = segs[targetIdx]!;
+      const eff = s.startTime + this.#timelineDrift;
       if (
-        !this.#fetchedSegments.has(segs[targetIdx]) &&
-        !isBuffered(eff, s.duration as number, sbBuffered)
+        !this.#fetchedSegments.has(segs[targetIdx]!) &&
+        !isBuffered(eff, s.duration, sbBuffered)
       ) {
         break; // Found the next segment that needs fetching.
       }
       targetIdx++;
     }
-    if (targetIdx >= segs.length) return;
+    if (targetIdx >= segs.length) {
+      return;
+    }
 
     // Find the first un-handled segment AFTER target for prefetching.
     let nextIdx = targetIdx + 1;
     while (nextIdx < segs.length) {
-      const s: any = segs[nextIdx];
-      const eff    = (s.startTime as number) + this.#timelineDrift;
+      const s   = segs[nextIdx]!;
+      const eff = s.startTime + this.#timelineDrift;
       if (
-        !this.#fetchedSegments.has(segs[nextIdx]) &&
-        !isBuffered(eff, s.duration as number, sbBuffered)
+        !this.#fetchedSegments.has(segs[nextIdx]!) &&
+        !isBuffered(eff, s.duration, sbBuffered)
       ) {
         break;
       }
@@ -326,11 +345,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const target = segs[targetIdx];
     if (target.getAttribute('videl-state') !== 'active') {
       trace(this, 'pump', 'segment-activate', {
-        startTime:      (target as any).startTime,
-        effectiveStart: +((target as any).startTime + this.#timelineDrift).toFixed(3),
-        duration:       (target as any).duration,
-        url:            (target as any).url,
-        drift:          +this.#timelineDrift.toFixed(3),
+        startTime: target.startTime,
+        effectiveStart: +(target.startTime + this.#timelineDrift).toFixed(3),
+        duration: target.duration,
+        url: target.url,
+        drift: +this.#timelineDrift.toFixed(3)
       });
       target.sourceBuffer = this.#sourceBuffer;
       this.activateChild(target);
@@ -357,10 +376,8 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  get #childSegments(): any[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-segment'
-    ) as any[];
+  get #childSegments(): VidelSegment[] {
+    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-segment') as VidelSegment[];
   }
 
   // ── User interaction ──────────────────────────────────────────────────────
@@ -371,9 +388,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
    */
   #onClick = (): void => {
     this.dispatchEvent(new CustomEvent('videl:rep:select', {
-      bubbles:  true,
+      bubbles: true,
       composed: true,
-      detail:   { rep: this },
+      detail: { rep: this }
     }));
   };
 
@@ -385,21 +402,29 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   #onContextMenu = (e: MouseEvent): void => {
     e.preventDefault();
     this.dispatchEvent(new CustomEvent('videl:rep:remove', {
-      bubbles:  true,
+      bubbles: true,
       composed: true,
-      detail:   { rep: this },
+      detail: { rep: this }
     }));
   };
 
   #startInit(): void {
-    if (this.#initAppended) return;
-    if (this.#initPromise)  return;
-    if (!this.#sourceBuffer) return;
+    if (this.#initAppended) {
+      return;
+    }
+    if (this.#initPromise)  {
+      return;
+    }
+    if (!this.#sourceBuffer) {
+      return;
+    }
     if (!this.initializationUrl) {
       // Self-initializing representation (ISO on-demand profile): the single
       // whole-file segment carries its own moov, so there is no separate init
       // segment to fetch. Mark init complete so the pump appends it directly.
-      if (this.#childSegments.length > 0) this.#initAppended = true;
+      if (this.#childSegments.length > 0) {
+        this.#initAppended = true;
+      }
       return;
     }
 
@@ -416,14 +441,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
         }
       })
       .catch((err: unknown) => {
-        if (this.getAttribute('videl-state') === null) return;
-        this.dispatchEvent(
-          new CustomEvent('videl:segment:error', {
-            bubbles: true,
-            composed: true,
-            detail: { error: err instanceof Error ? err : new Error(String(err)) },
-          })
-        );
+        if (this.getAttribute('videl-state') === null) {
+          return;
+        }
+        this.dispatchEvent(new CustomEvent('videl:segment:error', {
+          bubbles: true,
+          composed: true,
+          detail: { error: err instanceof Error ? err : new Error(String(err)) }
+        }));
       })
       .finally(() => {
         this.#initPromise = null;
@@ -433,7 +458,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   async #doFetchInit(signal: AbortSignal): Promise<void> {
     const headers: Record<string, string> = {};
     if (this.initializationByteRange) {
-      headers['Range'] = `bytes=${this.initializationByteRange}`;
+      headers.Range = `bytes=${this.initializationByteRange}`;
     }
     const resp = await fetch(this.initializationUrl, { signal, headers });
     if (!resp.ok) {
@@ -454,28 +479,35 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
    *   Positive drift — segment buffered more than declared.
    */
   #onSegmentDone = (event: Event): void => {
-    const target = event.target as Element;
-    const self   = this as unknown as HTMLElement;
-    if (target.parentElement !== self) return;
-    if (target.tagName.toLowerCase() !== 'videl-segment') return;
-    if (!this.#sourceBuffer) return;
+    if (!(event.target instanceof VidelSegment)) {
+      return;
+    }
+    const self = this as unknown as HTMLElement;
+    if (event.target.parentElement !== self) {
+      return;
+    }
+    if (!this.#sourceBuffer) {
+      return;
+    }
 
-    const seg          = target as any;
-    const sbBuffered   = this.#sourceBuffer.buffered;
+    const seg = event.target;
+    const sbBuffered = this.#sourceBuffer.buffered;
 
     // The segment's bytes are now in the SourceBuffer — mark it as fetched.
     // This is the only correct place to do so: earlier (at activateChild or
     // preloadChild time) the data isn't in the buffer yet, which would cause
     // the walk to skip segments prematurely and break sequential appending.
-    this.#fetchedSegments.add(target);
+    this.#fetchedSegments.add(seg);
 
     // Locate the actual end of the buffer at this segment's effective position.
-    const effectiveStart = (seg.startTime as number) + this.#timelineDrift;
+    const effectiveStart = seg.startTime + this.#timelineDrift;
     const actualEnd      = bufferEndNear(effectiveStart, sbBuffered);
-    if (actualEnd === null) return; // Buffer state unclear — skip drift update.
+    if (actualEnd === null) {
+      return;
+    } // Buffer state unclear — skip drift update.
 
     // Declared end in MPD time (un-adjusted — segments keep their original times).
-    const declaredEnd = (seg.startTime as number) + (seg.duration as number);
+    const declaredEnd = seg.startTime + seg.duration;
     const prevDrift   = this.#timelineDrift;
 
     // New cumulative drift: how far the real buffer end is from the declared end.
@@ -485,10 +517,10 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     if (Math.abs(delta) > 0.001) {
       trace(this, 'timeline', 'drift-update', {
         segmentStart: seg.startTime,
-        declaredEnd:  +declaredEnd.toFixed(4),
-        actualEnd:    +actualEnd.toFixed(4),
-        drift:        +this.#timelineDrift.toFixed(4),
-        delta:        +delta.toFixed(4),
+        declaredEnd: +declaredEnd.toFixed(4),
+        actualEnd: +actualEnd.toFixed(4),
+        drift: +this.#timelineDrift.toFixed(4),
+        delta: +delta.toFixed(4)
       });
     }
   };

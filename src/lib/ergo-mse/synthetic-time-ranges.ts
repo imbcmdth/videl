@@ -34,7 +34,9 @@ export class SyntheticTimeRanges {
    * touching existing ranges.
    */
   add(start: number, end: number): void {
-    if (start >= end) return;
+    if (start >= end) {
+      return;
+    }
 
     const result: [number, number][] = [];
     let mergedStart = start;
@@ -59,7 +61,9 @@ export class SyntheticTimeRanges {
       }
     }
 
-    if (!placed) result.push([mergedStart, mergedEnd]);
+    if (!placed) {
+      result.push([mergedStart, mergedEnd]);
+    }
 
     this.#ranges = result;
   }
@@ -69,7 +73,9 @@ export class SyntheticTimeRanges {
    * straddle a boundary are split; ranges fully inside are removed entirely.
    */
   cut(start: number, end: number): void {
-    if (start >= end) return;
+    if (start >= end) {
+      return;
+    }
 
     const result: [number, number][] = [];
     for (const [rs, re] of this.#ranges) {
@@ -78,8 +84,12 @@ export class SyntheticTimeRanges {
         result.push([rs, re]);
       } else {
         // Partial or full overlap.
-        if (rs < start) result.push([rs, start]);
-        if (re > end)   result.push([end, re]);
+        if (rs < start) {
+          result.push([rs, start]);
+        }
+        if (re > end)   {
+          result.push([end, re]);
+        }
         // (fully inside → both conditions false → nothing pushed → range removed)
       }
     }

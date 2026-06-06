@@ -3,6 +3,8 @@ import { ManagedSourceBuffer, TextSourceBuffer } from '../lib/ergo-mse';
 import type { ISourceBuffer } from '../lib/ergo-mse';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
+import { VidelAdaptationSet } from './videl-adaptation-set';
+import { VidelPresentation } from './videl-presentation';
 
 /**
  * `<videl-player>` — the root orchestrator and playlist container.
@@ -82,6 +84,7 @@ export class VidelPlayer extends HTMLElement {
   // ── Bandwidth estimation (EWMA) ───────────────────────────────────────────
 
   #bandwidth = 1_000_000; // optimistic start; real throughput replaces it quickly
+  #minFetchLatency = Infinity; // track the minimum fetch latency observed so far
 
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
@@ -231,9 +234,9 @@ export class VidelPlayer extends HTMLElement {
     this.#shadow.querySelector('.stage')!.appendChild(this.#video);
 
     for (const name of [
-      'play','pause','timeupdate','seeking','seeked','ended',
-      'waiting','canplay','canplaythrough','durationchange','volumechange',
-      'loadedmetadata','loadeddata','error',
+      'play', 'pause', 'timeupdate', 'seeking', 'seeked', 'ended',
+      'waiting', 'canplay', 'canplaythrough', 'durationchange', 'volumechange',
+      'loadedmetadata', 'loadeddata', 'error'
     ]) {
       this.#video.addEventListener(name, () => this.dispatchEvent(new Event(name)));
     }
@@ -248,8 +251,11 @@ export class VidelPlayer extends HTMLElement {
    */
   #refreshPlaylistChrome(): void {
     const count = this.#childPresentations.length;
-    if (count >= 2) this.removeAttribute('no-playlist');
-    else            this.setAttribute('no-playlist', '');
+    if (count >= 2) {
+      this.removeAttribute('no-playlist');
+    } else            {
+      this.setAttribute('no-playlist', '');
+    }
   }
 
   #ensureMirror(): HTMLElement {
@@ -286,15 +292,19 @@ export class VidelPlayer extends HTMLElement {
     // "Now playing" badge (inline-styled so it needs no external CSS).
     const badge = document.createElement('div');
     badge.textContent = '\u25B6 Now Playing';
-    badge.setAttribute('style',
+    badge.setAttribute(
+      'style',
       'position:absolute;top:6px;left:6px;z-index:2;pointer-events:none;' +
       'font:600 10px/1 ui-monospace,monospace;color:#fff;' +
-      'background:rgba(79,156,249,0.9);padding:3px 6px;');
+      'background:rgba(79,156,249,0.9);padding:3px 6px;'
+    );
     mirror.appendChild(badge);
 
     // Clone the active presentation's user content (skip technical periods).
     for (const child of Array.from(active!.children)) {
-      if (child.tagName.toLowerCase() === 'videl-period') continue;
+      if (child.tagName.toLowerCase() === 'videl-period') {
+        continue;
+      }
       mirror.appendChild(child.cloneNode(true));
     }
 
@@ -357,7 +367,9 @@ export class VidelPlayer extends HTMLElement {
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     if (name === 'src') {
-      if (value !== old && this.isConnected) this.#beginLoad(value ?? '');
+      if (value !== old && this.isConnected) {
+        this.#beginLoad(value ?? '');
+      }
     } else if (name === 'tick-ms') {
       this.#tickMs = Math.max(16, Number(value ?? 250));
     } else if (name === 'buffer-ahead') {
@@ -369,14 +381,26 @@ export class VidelPlayer extends HTMLElement {
 
   // ── HTMLMediaElement proxy ────────────────────────────────────────────────
 
-  get src(): string  { return this.getAttribute('src') ?? ''; }
-  set src(v: string) { this.setAttribute('src', v); }
+  get src(): string  {
+    return this.getAttribute('src') ?? '';
+  }
+  set src(v: string) {
+    this.setAttribute('src', v);
+  }
 
-  play()  { return this.#video.play(); }
-  pause() { this.#video.pause(); }
+  play()  {
+    return this.#video.play();
+  }
+  pause() {
+    this.#video.pause();
+  }
 
-  get currentTime():       number  { return this.#video.currentTime; }
-  set currentTime(v: number)       { this.#seekTo(v); }
+  get currentTime():       number  {
+    return this.#video.currentTime;
+  }
+  set currentTime(v: number)       {
+    this.#seekTo(v);
+  }
 
   get duration(): number {
     // Prefer the active (or any available) presentation's manifest duration.
@@ -387,23 +411,47 @@ export class VidelPlayer extends HTMLElement {
     return d ? Number(d) : (this.#video.duration || NaN);
   }
 
-  get paused():      boolean    { return this.#video.paused; }
-  get buffered():    TimeRanges { return this.#video.buffered; }
-  get readyState():  number     { return this.#video.readyState; }
+  get paused():      boolean    {
+    return this.#video.paused;
+  }
+  get buffered():    TimeRanges {
+    return this.#video.buffered;
+  }
+  get readyState():  number     {
+    return this.#video.readyState;
+  }
 
-  get volume():        number  { return this.#video.volume; }
-  set volume(v: number)        { this.#video.volume = v; }
+  get volume():        number  {
+    return this.#video.volume;
+  }
+  set volume(v: number)        {
+    this.#video.volume = v;
+  }
 
-  get muted():         boolean { return this.#video.muted; }
-  set muted(v: boolean)        { this.#video.muted = v; }
+  get muted():         boolean {
+    return this.#video.muted;
+  }
+  set muted(v: boolean)        {
+    this.#video.muted = v;
+  }
 
-  get playbackRate():  number  { return this.#video.playbackRate; }
-  set playbackRate(v: number)  { this.#video.playbackRate = v; }
+  get playbackRate():  number  {
+    return this.#video.playbackRate;
+  }
+  set playbackRate(v: number)  {
+    this.#video.playbackRate = v;
+  }
 
-  get bufferAhead():   number  { return this.#bufferAhead; }
-  set bufferAhead(v: number)   { this.#bufferAhead = Math.max(1, v); }
+  get bufferAhead():   number  {
+    return this.#bufferAhead;
+  }
+  set bufferAhead(v: number)   {
+    this.#bufferAhead = Math.max(1, v);
+  }
 
-  get nativeVideo(): HTMLVideoElement { return this.#video; }
+  get nativeVideo(): HTMLVideoElement {
+    return this.#video;
+  }
 
   // ── Playlist helpers ──────────────────────────────────────────────────────
 
@@ -414,7 +462,9 @@ export class VidelPlayer extends HTMLElement {
   /** Start playing the pre-declared playlist from the first presentation. */
   #activatePlaylist(): void {
     const presentations = this.#childPresentations;
-    if (presentations.length === 0 || this.#activePresentation) return;
+    if (presentations.length === 0 || this.#activePresentation) {
+      return;
+    }
 
     // Pre-fetch the second presentation while the first activates.
     if (presentations.length > 1) {
@@ -434,14 +484,16 @@ export class VidelPlayer extends HTMLElement {
    */
   async #activatePresentation(presEl: Element, signal: AbortSignal): Promise<void> {
     trace(this, 'lifecycle', 'presentation-activate', {
-      src: presEl.getAttribute('src') ?? '',
+      src: presEl.getAttribute('src') ?? ''
     });
 
     // Populate: fetch + parse MPD if not already done (idempotent).
-    if (typeof (presEl as any).videlPopulate === 'function') {
-      await (presEl as any).videlPopulate();
+    if (presEl instanceof VidelPresentation) {
+      await presEl.videlPopulate();
     }
-    if (signal.aborted) return;
+    if (signal.aborted) {
+      return;
+    }
 
     await this.#setupMse(presEl, signal);
   }
@@ -449,7 +501,9 @@ export class VidelPlayer extends HTMLElement {
   // ── Legacy load (src attribute) ───────────────────────────────────────────
 
   async #beginLoad(src: string): Promise<void> {
-    if (!src || !this.isConnected) return;
+    if (!src || !this.isConnected) {
+      return;
+    }
 
     this.#loadAbort?.abort();
     this.#loadAbort = new AbortController();
@@ -463,12 +517,18 @@ export class VidelPlayer extends HTMLElement {
 
     try {
       const resp = await fetch(src, { signal });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src}`);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status} fetching ${src}`);
+      }
       const xml = await resp.text();
-      if (signal.aborted) return;
+      if (signal.aborted) {
+        return;
+      }
 
       const presEl = parseMpd(xml, src);
-      if (signal.aborted) return;
+      if (signal.aborted) {
+        return;
+      }
 
       // Replace all presentation children with the newly parsed one.
       for (const old of [...this.querySelectorAll(':scope > videl-presentation')]) {
@@ -480,12 +540,19 @@ export class VidelPlayer extends HTMLElement {
       presEl.setAttribute('generated', '');
       this.appendChild(presEl);
 
-      if (this.hasAttribute('debug')) this.#propagateDebug(true);
+      if (this.hasAttribute('debug')) {
+        this.#propagateDebug(true);
+      }
 
       await this.#setupMse(presEl, signal);
-      if (wasPlaying) this.#video.play().catch(() => {});
+      if (wasPlaying) {
+        this.#video.play().catch(() => {});
+      }
     } catch (err: unknown) {
-      if ((err as any)?.name === 'AbortError') return;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      // eslint-disable-next-line no-console
       console.error('[videl-player] load failed:', err);
     }
   }
@@ -500,29 +567,41 @@ export class VidelPlayer extends HTMLElement {
     this.#video.src   = url;
 
     await new Promise<void>((resolve, reject) => {
-      const cleanup = () => {
-        ms.removeEventListener('sourceopen', onOpen);
-        ms.removeEventListener('error',      onErr);
+      const h = {
+        onOpen: () => {
+          ms.removeEventListener('sourceopen', h.onOpen);
+          ms.removeEventListener('error', h.onErr);
+          resolve();
+        },
+        onErr: () => {
+          ms.removeEventListener('sourceopen', h.onOpen);
+          ms.removeEventListener('error', h.onErr);
+          reject(new Error('MediaSource error'));
+        }
       };
-      const onOpen = () => { cleanup(); resolve(); };
-      const onErr  = () => { cleanup(); reject(new Error('MediaSource error')); };
-      ms.addEventListener('sourceopen', onOpen, { once: true });
-      ms.addEventListener('error',      onErr,  { once: true });
-      signal.addEventListener('abort',  () => {
-        cleanup();
+
+      ms.addEventListener('sourceopen', h.onOpen, { once: true });
+      ms.addEventListener('error', h.onErr, { once: true });
+      signal.addEventListener('abort', () => {
+        ms.removeEventListener('sourceopen', h.onOpen);
+        ms.removeEventListener('error', h.onErr);
         reject(new DOMException('Aborted', 'AbortError'));
       });
     });
 
-    if (signal.aborted || ms.readyState !== 'open') return;
+    if (signal.aborted || ms.readyState !== 'open') {
+      return;
+    }
 
     trace(this, 'mse', 'source-open', {});
 
-    const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')];
+    const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')] as VidelAdaptationSet[];
+
     for (const ads of adsSets) {
       const contentType = ads.getAttribute('content-type') ?? '';
+
       if (this.#sourceBuffers.has(contentType)) {
-        (ads as any).sourceBuffer = this.#sourceBuffers.get(contentType);
+        ads.sourceBuffer = this.#sourceBuffers.get(contentType) ?? null;
         continue;
       }
 
@@ -537,19 +616,22 @@ export class VidelPlayer extends HTMLElement {
       if (contentType === 'text') {
         if (this.#sourceBuffers.has('text')) {
           // Already created for a prior text ADS (including the None ADS).
-          (ads as any).sourceBuffer = this.#sourceBuffers.get('text');
+          ads.sourceBuffer = this.#sourceBuffers.get('text') ?? null;
           continue;
         }
         const label = ads.getAttribute('label') ?? ads.getAttribute('lang') ?? 'subtitles';
         const lang  = ads.getAttribute('lang')  ?? '';
+
         trace(this, 'mse', 'add-text-source-buffer', { label, lang, codecs });
-        const tsb   = new TextSourceBuffer(this.#video, label, lang, codecs);
+        const tsb = new TextSourceBuffer(this.#video, label, lang, codecs);
+
         this.#sourceBuffers.set('text', tsb);
-        (ads as any).sourceBuffer = tsb;
+        ads.sourceBuffer = tsb;
         continue;
       }
 
       if (!mimeAndCodecs || !MediaSource.isTypeSupported(mimeAndCodecs)) {
+        // eslint-disable-next-line no-console
         console.warn(`[videl-player] unsupported codec for ${contentType}: ${mimeAndCodecs}`);
         continue;
       }
@@ -558,14 +640,18 @@ export class VidelPlayer extends HTMLElement {
         trace(this, 'mse', 'add-source-buffer', { contentType, mimeAndCodecs });
         const sb  = ms.addSourceBuffer(mimeAndCodecs);
         const msb = new ManagedSourceBuffer(sb);
+
         this.#sourceBuffers.set(contentType, msb);
-        (ads as any).sourceBuffer = msb;
+        ads.sourceBuffer = msb;
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.warn(`[videl-player] addSourceBuffer failed for ${contentType}:`, e);
       }
     }
 
-    if (signal.aborted) return;
+    if (signal.aborted) {
+      return;
+    }
 
     presEl.setAttribute('videl-state', 'active');
     // Move the active presentation into the stage slot so its overlay covers
@@ -576,7 +662,7 @@ export class VidelPlayer extends HTMLElement {
     this.#resetInactivityTimer();
 
     trace(this, 'mse', 'setup-complete', {
-      sourceBuffers: [...this.#sourceBuffers.keys()],
+      sourceBuffers: [...this.#sourceBuffers.keys()]
     });
 
     this.#startPump();
@@ -607,7 +693,9 @@ export class VidelPlayer extends HTMLElement {
         const cues = sb.textTrack.cues;
         if (cues) {
           const list = Array.from(cues);
-          for (const c of list) sb.textTrack.removeCue(c);
+          for (const c of list) {
+            sb.textTrack.removeCue(c);
+          }
         }
         sb.textTrack.mode = 'disabled';
       }
@@ -616,7 +704,9 @@ export class VidelPlayer extends HTMLElement {
     if (this.#mediaSource) {
       trace(this, 'mse', 'teardown', { readyState: this.#mediaSource.readyState });
       try {
-        if (this.#mediaSource.readyState === 'open') this.#mediaSource.endOfStream();
+        if (this.#mediaSource.readyState === 'open') {
+          this.#mediaSource.endOfStream();
+        }
       } catch { /* ignore */ }
       this.#mediaSource = null;
     }
@@ -650,24 +740,28 @@ export class VidelPlayer extends HTMLElement {
   };
 
   #pumpTick(): void {
-    if (!this.#activePresentation) return;
+    if (!this.#activePresentation) {
+      return;
+    }
     const sourceBuffered = new Map<string, TimeRanges>();
     for (const [ct, msb] of this.#sourceBuffers) {
       sourceBuffered.set(ct, msb.buffered);
     }
 
     const state: PlayerState = {
-      currentTime:   this.#video.currentTime,
-      buffered:      this.#video.buffered,
-      bandwidth:     this.#bandwidth,
-      playbackRate:  Math.max(this.#video.playbackRate, 0.01),
-      bufferAhead:   this.#bufferAhead,
+      currentTime: this.#video.currentTime,
+      buffered: this.#video.buffered,
+      bandwidth: this.#bandwidth,
+      playbackRate: Math.max(this.#video.playbackRate, 0.01),
+      bufferAhead: this.#bufferAhead,
       sourceBuffered,
-      paused:        this.#video.paused,
-      volume:        this.#video.volume,
-      muted:         this.#video.muted,
+      paused: this.#video.paused,
+      volume: this.#video.volume,
+      muted: this.#video.muted
     };
-    (this.#activePresentation as any).videlUpdate(state);
+    if (this.#activePresentation instanceof VidelPresentation) {
+      this.#activePresentation.videlUpdate(state);
+    }
     this.#maybeEndOfStream();
   }
 
@@ -682,19 +776,29 @@ export class VidelPlayer extends HTMLElement {
    * playlist advancement never happens.
    */
   #maybeEndOfStream(): void {
-    if (!this.#mediaSource || this.#mediaSource.readyState !== 'open') return;
-    if (!this.#activePresentation || this.#sourceBuffers.size === 0) return;
+    if (!this.#mediaSource || this.#mediaSource.readyState !== 'open') {
+      return;
+    }
+    if (!this.#activePresentation || this.#sourceBuffers.size === 0) {
+      return;
+    }
 
-    const dur = Number(
-      this.#activePresentation.getAttribute('media-presentation-duration') ?? 0
-    );
-    if (dur <= 0) return; // live / unknown duration — never signal EOS
+    const dur = Number(this.#activePresentation.getAttribute('media-presentation-duration') ?? 0);
+    if (dur <= 0) {
+      return;
+    } // live / unknown duration — never signal EOS
 
     for (const [ct, msb] of this.#sourceBuffers) {
-      if (ct === 'text') continue; // text tracks don't gate MSE endOfStream
-      if (msb.updating) return;   // append still in flight — wait for next tick
+      if (ct === 'text') {
+        continue;
+      } // text tracks don't gate MSE endOfStream
+      if (msb.updating) {
+        return;
+      }   // append still in flight — wait for next tick
       const b = msb.buffered;
-      if (b.length === 0 || b.end(b.length - 1) < dur - 0.5) return;
+      if (b.length === 0 || b.end(b.length - 1) < dur - 0.5) {
+        return;
+      }
     }
 
     trace(this, 'mse', 'end-of-stream', { duration: dur });
@@ -749,7 +853,9 @@ export class VidelPlayer extends HTMLElement {
 
   /** Any pointer movement or press inside the player restores active state. */
   #onPointerActivity = (): void => {
-    if (this.#activePresentation) this.#resetInactivityTimer();
+    if (this.#activePresentation) {
+      this.#resetInactivityTimer();
+    }
   };
 
   /** Pointer leaving the player boundary — let the normal timer run out. */
@@ -767,9 +873,16 @@ export class VidelPlayer extends HTMLElement {
     if (tag === 'videl-segment') {
       // Bandwidth estimation from real fetch throughput.
       const { bytes = 0, fetchMs = 0 } = (event as CustomEvent).detail ?? {};
-      if (bytes > 0 && fetchMs >= 50) {
+      this.#minFetchLatency = Math.min(this.#minFetchLatency, fetchMs);
+      // Reject bandwidth samples based on probability increasing from 0 at 10 kB to 1 at 100 kB
+      // or if the fetch latency is very low (likely cached) — this filters out samples that would
+      // cause us to underestimate bandwidth due to small segment sizes where startup latency dominates.
+      const rejectBytes = Math.random() * 90_000 + 10_000;
+      const rejectMs    = Math.random() * this.#minFetchLatency + (this.#minFetchLatency / 10);
+      if (bytes > rejectBytes && fetchMs >= rejectMs) {
         const measuredBps = (bytes * 8) / (fetchMs / 1000);
         this.#bandwidth = 0.666 * this.#bandwidth + 0.334 * measuredBps;
+        trace(this, 'bandwidth', 'update', { bytes, fetchMs, measuredBps: Math.round(measuredBps), bandwidth: Math.round(this.#bandwidth) });
       }
       return;
     }
@@ -792,9 +905,9 @@ export class VidelPlayer extends HTMLElement {
     const fromSrc    = completedPres.getAttribute('src') ?? '';
 
     trace(this, 'lifecycle', 'playlist-advance', {
-      from:  fromSrc,
-      to:    nextPres?.getAttribute('src') ?? null,
-      index: currentIdx + 1,
+      from: fromSrc,
+      to: nextPres?.getAttribute('src') ?? null,
+      index: currentIdx + 1
     });
 
     this.#teardownPresentation();
@@ -809,10 +922,10 @@ export class VidelPlayer extends HTMLElement {
     this.dispatchEvent(new CustomEvent('videl:playlist:advance', {
       bubbles: true,
       detail: {
-        from:  fromSrc,
-        to:    nextPres.getAttribute('src') ?? '',
-        index: currentIdx + 1,
-      },
+        from: fromSrc,
+        to: nextPres.getAttribute('src') ?? '',
+        index: currentIdx + 1
+      }
     }));
 
     // Pre-fetch the presentation after next while activating next.
@@ -824,7 +937,9 @@ export class VidelPlayer extends HTMLElement {
     const ctrl      = new AbortController();
     this.#loadAbort = ctrl;
     this.#activatePresentation(nextPres, ctrl.signal).then(() => {
-      if (wasPlaying) this.#video.play().catch(() => {});
+      if (wasPlaying) {
+        this.#video.play().catch(() => {});
+      }
     }).catch(() => {});
   }
 
@@ -839,14 +954,16 @@ export class VidelPlayer extends HTMLElement {
     const path   = event.composedPath();
     // Find the nearest videl-presentation in the click path that is a direct
     // child of this player (a playlist card), if any.
-    const card = path.find(
-      (n): n is Element =>
-        n instanceof Element &&
+    const card = path.find((n): n is Element =>
+      n instanceof Element &&
         n.tagName.toLowerCase() === 'videl-presentation' &&
-        n.parentElement === this
-    );
-    if (!card) return;                      // not a playlist card click
-    if (card === this.#activePresentation) return; // already playing
+        n.parentElement === this);
+    if (!card) {
+      return;
+    }                      // not a playlist card click
+    if (card === this.#activePresentation) {
+      return;
+    } // already playing
 
     this.#switchToPresentation(card);
   };
@@ -863,7 +980,7 @@ export class VidelPlayer extends HTMLElement {
 
     trace(this, 'lifecycle', 'playlist-select', {
       from: fromSrc,
-      to:   target.getAttribute('src') ?? '',
+      to: target.getAttribute('src') ?? ''
     });
 
     // Abort any in-flight activation, then tear down the current stream.
@@ -874,7 +991,9 @@ export class VidelPlayer extends HTMLElement {
 
     // Clear stale next-state from siblings; prefetch the one after target.
     for (const pres of this.#childPresentations) {
-      if (pres !== target) pres.removeAttribute('videl-state');
+      if (pres !== target) {
+        pres.removeAttribute('videl-state');
+      }
     }
     const idx       = this.#childPresentations.indexOf(target);
     const afterNext = this.#childPresentations[idx + 1];
@@ -884,13 +1003,15 @@ export class VidelPlayer extends HTMLElement {
 
     this.dispatchEvent(new CustomEvent('videl:playlist:advance', {
       bubbles: true,
-      detail: { from: fromSrc, to: target.getAttribute('src') ?? '', index: idx },
+      detail: { from: fromSrc, to: target.getAttribute('src') ?? '', index: idx }
     }));
 
     const ctrl      = new AbortController();
     this.#loadAbort = ctrl;
     this.#activatePresentation(target, ctrl.signal).then(() => {
-      if (wasPlaying) this.#video.play().catch(() => {});
+      if (wasPlaying) {
+        this.#video.play().catch(() => {});
+      }
     }).catch(() => {});
   }
 
@@ -898,7 +1019,7 @@ export class VidelPlayer extends HTMLElement {
     const savedTime  = this.#video.currentTime;
     const wasPlaying = !this.#video.paused;
     trace(this, 'mse', 'rebuild-start', {
-      reason: 'videl:mse:error', savedTime: +savedTime.toFixed(3), wasPlaying,
+      reason: 'videl:mse:error', savedTime: +savedTime.toFixed(3), wasPlaying
     });
 
     this.#teardownPresentation();
@@ -908,8 +1029,12 @@ export class VidelPlayer extends HTMLElement {
     if (pres) {
       const ctrl = new AbortController();
       this.#setupMse(pres, ctrl.signal).then(() => {
-        if (savedTime > 0) this.#video.currentTime = savedTime;
-        if (wasPlaying) this.#video.play().catch(() => {});
+        if (savedTime > 0) {
+          this.#video.currentTime = savedTime;
+        }
+        if (wasPlaying) {
+          this.#video.play().catch(() => {});
+        }
       }).catch(() => {});
     }
   };
@@ -917,18 +1042,25 @@ export class VidelPlayer extends HTMLElement {
   // ── Internal UI event handlers (from presentation controls) ──────────────
 
   #onUiPlayPause = (): void => {
-    if (this.#video.paused) this.#video.play().catch(() => {});
-    else this.#video.pause();
+    if (this.#video.paused) {
+      this.#video.play().catch(() => {});
+    } else {
+      this.#video.pause();
+    }
   };
 
   #onUiSeek = (event: Event): void => {
     const { time } = (event as CustomEvent).detail ?? {};
-    if (typeof time === 'number' && isFinite(time)) this.#seekTo(time);
+    if (typeof time === 'number' && isFinite(time)) {
+      this.#seekTo(time);
+    }
   };
 
   #onUiVolume = (event: Event): void => {
     const { volume } = (event as CustomEvent).detail ?? {};
-    if (typeof volume === 'number') this.#video.volume = Math.max(0, Math.min(1, volume));
+    if (typeof volume === 'number') {
+      this.#video.volume = Math.max(0, Math.min(1, volume));
+    }
   };
 
   #onUiMuteToggle = (): void => {
@@ -947,7 +1079,9 @@ export class VidelPlayer extends HTMLElement {
     const presChanged =
       added.some(n => n.tagName.toLowerCase() === 'videl-presentation') ||
       removed.some(n => n.tagName.toLowerCase() === 'videl-presentation');
-    if (presChanged) this.#refreshPlaylistChrome();
+    if (presChanged) {
+      this.#refreshPlaylistChrome();
+    }
 
     // New <videl-presentation> children added while player is idle → start playlist.
     const hasNewPres = added.some(n => n.tagName.toLowerCase() === 'videl-presentation');
@@ -968,8 +1102,8 @@ export class VidelPlayer extends HTMLElement {
 
   #propagateDebug(on: boolean): void {
     const sel = [
-      'videl-presentation','videl-period','videl-adaptation-set',
-      'videl-representation','videl-segment',
+      'videl-presentation', 'videl-period', 'videl-adaptation-set',
+      'videl-representation', 'videl-segment'
     ].join(',');
     for (const el of this.querySelectorAll(sel)) {
       on ? el.setAttribute('debug', '') : el.removeAttribute('debug');

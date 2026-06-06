@@ -50,7 +50,9 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
 
   // First non-empty line must start with "WEBVTT".
   const firstLine = lines[0] ?? '';
-  if (!firstLine.startsWith('WEBVTT')) return [];
+  if (!firstLine.startsWith('WEBVTT')) {
+    return [];
+  }
 
   const cues: VttFileCueData[] = [];
   let i = 1; // start after the WEBVTT header
@@ -59,7 +61,9 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
     const line = lines[i] ?? '';
 
     // Skip empty lines between blocks.
-    if (!line.trim()) { i++; continue; }
+    if (!line.trim()) {
+      i++; continue;
+    }
 
     // Skip NOTE / STYLE / REGION blocks (read until next empty line).
     if (
@@ -68,7 +72,9 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
       line.startsWith('REGION')
     ) {
       i++;
-      while (i < lines.length && (lines[i] ?? '').trim()) i++;
+      while (i < lines.length && (lines[i] ?? '').trim()) {
+        i++;
+      }
       continue;
     }
 
@@ -92,10 +98,10 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
     // Parse the timing line.
     // Format: <start> --> <end> [settings]
     // where <start>/<end> are HH:MM:SS.mmm or MM:SS.mmm
-    const timingMatch = timingLine.match(
-      /^(\S+)\s+-->\s+(\S+)(?:\s+(.*))?$/
-    );
-    if (!timingMatch) { i++; continue; }
+    const timingMatch = timingLine.match(/^(\S+)\s+-->\s+(\S+)(?:\s+(.*))?$/);
+    if (!timingMatch) {
+      i++; continue;
+    }
 
     const startTime = parseVttTimestamp(timingMatch[1]);
     const endTime   = parseVttTimestamp(timingMatch[2]);
@@ -115,14 +121,16 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
       i++;
     }
 
-    if (payloadLines.length === 0) continue;
+    if (payloadLines.length === 0) {
+      continue;
+    }
 
     cues.push({
       id,
       startTime,
       endTime,
-      payload:  payloadLines.join('\n'),
-      settings,
+      payload: payloadLines.join('\n'),
+      settings
     });
   }
 
@@ -142,17 +150,19 @@ export function parseVttFile(data: Uint8Array): VttFileCueData[] {
  */
 export function parseVttTimestamp(value: string): number | null {
   // Optional HH: prefix
-  const match = value.match(
-    /^(?:(\d+):)?(\d{1,2}):(\d{2})\.(\d{3})$/
-  );
-  if (!match) return null;
+  const match = value.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})\.(\d{3})$/);
+  if (!match) {
+    return null;
+  }
 
   const hours   = parseInt(match[1] ?? '0', 10);
   const minutes = parseInt(match[2],         10);
   const seconds = parseInt(match[3],         10);
   const millis  = parseInt(match[4],         10);
 
-  if (minutes >= 60 || seconds >= 60) return null;
+  if (minutes >= 60 || seconds >= 60) {
+    return null;
+  }
 
   return hours * 3600 + minutes * 60 + seconds + millis / 1000;
 }

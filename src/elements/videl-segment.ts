@@ -35,14 +35,14 @@ export class VidelSegment extends LitElement {
   static get observedAttributes(): string[] {
     // Walk up from LitElement to find its observedAttributes getter, then
     // invoke it with this class as the receiver so Lit finalizes correctly.
-    let proto: any = Object.getPrototypeOf(this);
+    let proto: Function | null = Object.getPrototypeOf(this) as Function;
     while (proto) {
       const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
       if (desc?.get) {
         const parentAttrs: string[] = desc.get.call(this) ?? [];
-        return parentAttrs.includes('videl-state')
-          ? parentAttrs
-          : [...parentAttrs, 'videl-state'];
+        return parentAttrs.includes('videl-state') ?
+          parentAttrs :
+          [...parentAttrs, 'videl-state'];
       }
       proto = Object.getPrototypeOf(proto);
     }
@@ -50,12 +50,12 @@ export class VidelSegment extends LitElement {
   }
 
   static properties = {
-    url:       { type: String },
+    url: { type: String },
     byteRange: { type: String, attribute: 'byte-range' },
     startTime: { type: Number, attribute: 'start-time' },
-    duration:  { type: Number },
-    slot:      { type: String, reflect: true },
-    debug:     { type: Boolean },
+    duration: { type: Number },
+    slot: { type: String, reflect: true },
+    debug: { type: Boolean }
   };
 
   url       = '';
@@ -79,7 +79,9 @@ export class VidelSegment extends LitElement {
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     super.attributeChangedCallback(name, old, value);
 
-    if (name !== 'videl-state') return;
+    if (name !== 'videl-state') {
+      return;
+    }
 
     if (value === null) {
       this.#abort();
@@ -115,7 +117,9 @@ export class VidelSegment extends LitElement {
       try {
         bytes = await inflight;
       } catch (err) {
-        if (this.getAttribute('videl-state') !== 'active') return;
+        if (this.getAttribute('videl-state') !== 'active') {
+          return;
+        }
         this.#fireError(err as Error);
         return;
       }
@@ -125,21 +129,25 @@ export class VidelSegment extends LitElement {
       try {
         bytes = await this.#doFetch(this.#controller.signal);
       } catch (err) {
-        if (this.getAttribute('videl-state') !== 'active') return;
+        if (this.getAttribute('videl-state') !== 'active') {
+          return;
+        }
         this.#fireError(err as Error);
         return;
       }
     }
 
-    if (this.getAttribute('videl-state') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
 
     if (this.#fetchStats) {
       const { bytes: b, fetchMs } = this.#fetchStats;
       trace(this, 'fetch', 'fetch-complete', {
-        url:     this.url,
-        bytes:   b,
+        url: this.url,
+        bytes: b,
         fetchMs: Math.round(fetchMs),
-        bps:     Math.round((b * 8) / (fetchMs / 1000)),
+        bps: Math.round((b * 8) / (fetchMs / 1000))
       });
     }
 
@@ -152,27 +160,29 @@ export class VidelSegment extends LitElement {
     try {
       await this.sourceBuffer.append(bytes);
     } catch (err) {
-      if (this.getAttribute('videl-state') !== 'active') return;
+      if (this.getAttribute('videl-state') !== 'active') {
+        return;
+      }
       trace(this, 'buffer', 'append-error', { startTime: this.startTime, error: String(err) });
       this.#fireError(err as Error);
       return;
     }
     trace(this, 'buffer', 'append-complete', { startTime: this.startTime, duration: this.duration });
 
-    if (this.getAttribute('videl-state') !== 'active') return;
+    if (this.getAttribute('videl-state') !== 'active') {
+      return;
+    }
 
-    this.dispatchEvent(
-      new CustomEvent('videl:done', {
-        bubbles: true,
-        composed: true,
-        detail: {
-          startTime: this.startTime,
-          duration:  this.duration,
-          bytes:    this.#fetchStats?.bytes   ?? 0,
-          fetchMs:  this.#fetchStats?.fetchMs ?? 0,
-        },
-      })
-    );
+    this.dispatchEvent(new CustomEvent('videl:done', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        startTime: this.startTime,
+        duration: this.duration,
+        bytes: this.#fetchStats?.bytes   ?? 0,
+        fetchMs: this.#fetchStats?.fetchMs ?? 0
+      }
+    }));
   }
 
   #abort(): void {
@@ -187,18 +197,18 @@ export class VidelSegment extends LitElement {
   }
 
   #fireError(error: Error): void {
-    this.dispatchEvent(
-      new CustomEvent('videl:segment:error', {
-        bubbles: true,
-        composed: true,
-        detail: { error },
-      })
-    );
+    this.dispatchEvent(new CustomEvent('videl:segment:error', {
+      bubbles: true,
+      composed: true,
+      detail: { error }
+    }));
   }
 
   async #doFetch(signal: AbortSignal): Promise<ArrayBuffer> {
     const headers: Record<string, string> = {};
-    if (this.byteRange) headers['Range'] = `bytes=${this.byteRange}`;
+    if (this.byteRange) {
+      headers.Range = `bytes=${this.byteRange}`;
+    }
     const t0       = performance.now();
     const response = await fetch(this.url, { signal, headers });
     if (!response.ok) {
@@ -212,7 +222,9 @@ export class VidelSegment extends LitElement {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) return nothing;
+    if (!this.debug) {
+      return nothing;
+    }
     return html`
       <style>
         :host { display: block; font-family: monospace; font-size: 11px;

@@ -41,14 +41,14 @@ export function PickNMixin<TBase extends CEBase>(Base: TBase) {
 
     static get observedAttributes(): string[] {
       // Same prototype-chain walk as PickOneMixin.
-      let proto: any = Base;
+      let proto: Function | null = Base;
       while (proto) {
         const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
         if (desc?.get) {
           const parentAttrs: string[] = desc.get.call(this) ?? [];
-          return parentAttrs.includes('videl-state')
-            ? parentAttrs
-            : [...parentAttrs, 'videl-state'];
+          return parentAttrs.includes('videl-state') ?
+            parentAttrs :
+            [...parentAttrs, 'videl-state'];
         }
         proto = Object.getPrototypeOf(proto);
       }

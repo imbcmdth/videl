@@ -29,6 +29,7 @@ export type TraceCategory =
   | 'lifecycle'
   | 'mse'
   | 'buffer'
+  | 'bandwidth'
   | 'fetch'
   | 'abr'
   | 'pump'
@@ -54,11 +55,9 @@ export function trace(
   data?:    Record<string, unknown>
 ): void {
   const detail: TraceDetail = data ? { category, action, data } : { category, action };
-  source.dispatchEvent(
-    new CustomEvent<TraceDetail>('videl:trace', {
-      bubbles:  true,
-      composed: true,
-      detail,
-    })
-  );
+  source.dispatchEvent(new CustomEvent<TraceDetail>('videl:trace', {
+    bubbles: true,
+    composed: true,
+    detail
+  }));
 }
