@@ -198,6 +198,74 @@ test.describe('ManagedSourceBuffer', () => {
     expect(result).toBe('ok');
   });
 
+  // changeType is queued: when called after append() the SourceBuffer must
+  // not be in the 'updating' state when changeType actually executes.
+  test('changeType is queued and runs after a preceding append settles', async ({ page }) => {
+    await setup(page);
+    const log = await page.evaluate(
+      ({ seg }: { seg: number[] }) => {
+        const msb = (window as any).msb;
+        const sb  = (window as any)._sb as SourceBuffer;
+        const events: string[] = [];
+
+        sb.addEventListener('updateend', () => events.push('updateend'));
+
+        // Queue an append, then immediately call changeType without awaiting.
+        // If changeType were synchronous it would throw InvalidStateError because
+        // the SourceBuffer is updating; being queued it must wait for updateend.
+        const p1 = msb.append(new Uint8Array(seg).buffer)
+          .then(() => events.push('append-done'));
+
+        // changeType queued — must not run until p1 resolves.
+        msb.changeType('video/mp4; codecs="avc1.4d401f"');
+        events.push('changeType-called');
+
+        return p1.then(() => events);
+      },
+      { seg: SEG1_BYTES }
+    );
+    // changeType-called is pushed synchronously (before updateend fires).
+    // append-done follows updateend.
+    // The important invariant: changeType-called appears BEFORE append-done,
+    // confirming changeType was queued (not executed) when it was called.
+    expect(log.indexOf('changeType-called')).toBeLessThan(log.indexOf('append-done'));
+    // updateend must fire before append-done is pushed.
+    expect(log.indexOf('updateend')).toBeLessThan(log.indexOf('append-done'));
+  });
+
+  // timestampOffset is queued: setting it while an append is in flight must
+  // not attempt to write the property while updating === true.
+  test('timestampOffset assignment is queued and applied after pending append', async ({ page }) => {
+    await setup(page);
+    const result = await page.evaluate(
+      ({ seg }: { seg: number[] }) => {
+        const msb = (window as any).msb;
+        const sb  = (window as any)._sb as SourceBuffer;
+        let updatingAtAssignment = false;
+
+        // Intercept the actual property write on the underlying SourceBuffer
+        // to capture whether updating was true when the assignment happened.
+        const orig = Object.getOwnPropertyDescriptor(SourceBuffer.prototype, 'timestampOffset')!;
+        Object.defineProperty(sb, 'timestampOffset', {
+          get: orig.get!.bind(sb),
+          set(v: number) {
+            updatingAtAssignment = sb.updating;
+            orig.set!.call(sb, v);
+          },
+          configurable: true,
+        });
+
+        const p = msb.append(new Uint8Array(seg).buffer);
+        // Set timestampOffset while the append has been initiated.
+        msb.timestampOffset = 0;  // queued — must not write while updating
+
+        return p.then(() => ({ updatingAtAssignment }));
+      },
+      { seg: SEG1_BYTES }
+    );
+    expect(result.updatingAtAssignment).toBe(false);
+  });
+
   // Criteria 10+11: getters proxy the SourceBuffer
   test('updating and buffered getters proxy underlying SourceBuffer', async ({ page }) => {
     await setup(page);

@@ -45,7 +45,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   debug    = false;
   menuOpen: string | null = null;
 
-  #doneEmitted = false;
+  #doneEmitted     = false;
   /** Last currentTime seen by videlUpdate — needed by track-select handler. */
   #lastCurrentTime = 0;
 
@@ -108,8 +108,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * Called by the parent presentation on each pump tick while active.
    *
    * 1. Forward the full PlayerState to every currently-active adaptation set.
-   * 2. Check for period end: if `currentTime >= start + duration`, fire
-   *    `videl:done` exactly once.
+   * 2. Fire `videl:done` exactly once, whichever comes first:
+   *    - all media adaptation sets have buffered their last segment (primary), or
+   *    - `currentTime >= start + duration` (fallback for stalled fetches).
    */
   videlUpdate(state: PlayerState): void {
     if (this.getAttribute('videl-state') !== 'active') {
@@ -123,9 +124,28 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       ads.videlUpdate(state);
     }
 
-    // Period-end check — only when duration is explicitly set.
+    // Period completion — fires videl:done on whichever trigger comes first:
+    //
+    // PRIMARY: all media (video + audio) adaptation sets have buffered their
+    // last segment. Text tracks are excluded — the None ADS has no segments,
+    // and real text tracks don't gate period advancement. This fires earlier
+    // than the playhead reaching the boundary, giving the next period time to
+    // start filling the shared SourceBuffers before they run dry.
+    //
+    // FALLBACK: currentTime reaches the declared end. This fires if the primary
+    // trigger never arrives (e.g. a segment fetch stalls permanently), ensuring
+    // the player always advances rather than stalling at a broken period.
+    //
+    // Only fires for periods with a known duration; live / open-ended periods
+    // never complete via either path.
     if (!this.#doneEmitted && this.duration !== null) {
-      if (state.currentTime >= this.start + this.duration) {
+      const mediaAdsSets = this.#activeAdaptationSets.filter(ads => ads.contentType === 'video' || ads.contentType === 'audio');
+      const lastSegmentBuffered =
+        mediaAdsSets.length > 0 &&
+        mediaAdsSets.every(ads => ads.isFullyFetched);
+      const playheadAtEnd = state.currentTime >= this.start + this.duration;
+
+      if (lastSegmentBuffered || playheadAtEnd) {
         this.#doneEmitted = true;
         this.dispatchEvent(new CustomEvent('videl:done', {
           bubbles: true,
@@ -277,11 +297,12 @@ export class VidelPeriod extends PickNMixin(LitElement) {
         :host {
           display: block;
           height: 100%;
-          background: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.4);
+          /*background: rgba(255, 255, 255, 0.2);*/
           transition: background 0.15s;
         }
-        :host([videl-state="active"]) { background: rgba(255, 255, 255, 0.9); }
-        :host([videl-state="next"])   { background: rgba(255, 255, 255, 0.4); }
+        /*:host([videl-state="active"]) { background: rgba(255, 255, 255, 0.9); }
+        :host([videl-state="next"])   { background: rgba(255, 255, 255, 0.4); }*/
 
         /* Adaptation sets are hidden by default. */
         ::slotted(videl-adaptation-set) { display: none !important; }

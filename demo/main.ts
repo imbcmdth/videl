@@ -7,7 +7,9 @@
 
 // Register videl elements (side-effect imports).
 import '../src/index';
+import { version } from '../package.json';
 
+document.getElementById('version')!.textContent = `v${version}`;
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

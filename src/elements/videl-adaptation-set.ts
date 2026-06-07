@@ -72,6 +72,16 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     this.#sourceBuffer = val;
   }
 
+  /**
+   * True when the active representation has fetched every one of its segments.
+   * Used by the parent period to detect full-period buffering for seamless
+   * period transitions. Text adaptation sets are excluded from this check by
+   * the period — they never gate period advancement.
+   */
+  get isFullyFetched(): boolean {
+    return this.#activeRepresentation?.isFullyFetched ?? false;
+  }
+
   #activeMimeAndCodecs: string | null = null;
 
   // ── Custom element lifecycle ──────────────────────────────────────────────

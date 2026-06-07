@@ -380,6 +380,20 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-segment') as VidelSegment[];
   }
 
+  /**
+   * True once the **last** segment has been appended to the SourceBuffer.
+   * Checking only the last segment (not all of them) is seek-correct: after a
+   * seek the representation skips earlier segments and walks forward from the
+   * new position, so `#fetchedSegments` will never contain the skipped ones.
+   * What matters for seamless period transitions is that the segment adjacent
+   * to the next period boundary has been buffered — i.e. the last one.
+   */
+  get isFullyFetched(): boolean {
+    const segs    = this.#childSegments;
+    const lastSeg = segs[segs.length - 1];
+    return lastSeg !== undefined && this.#fetchedSegments.has(lastSeg);
+  }
+
   // ── User interaction ──────────────────────────────────────────────────────
 
   /**

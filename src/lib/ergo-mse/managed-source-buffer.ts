@@ -1,9 +1,11 @@
 import type { ISourceBuffer } from './i-source-buffer';
 
 type MsbQueueEntry =
-  | { kind: 'append';  data: ArrayBuffer | ArrayBufferView; resolve: () => void; reject: (e: Error) => void }
-  | { kind: 'remove';  start: number; end: number;           resolve: () => void; reject: (e: Error) => void }
-  | { kind: 'abort';                                          resolve: () => void; reject: (e: Error) => void };
+  | { kind: 'append';          data: ArrayBuffer | ArrayBufferView; resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'remove';          start: number; end: number;           resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'abort';                                                  resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'changeType';      mimeAndCodecs: string;                resolve: () => void; reject: (e: Error) => void }
+  | { kind: 'timestampOffset'; value: number;                        resolve: () => void; reject: (e: Error) => void };
 
 /**
  * ManagedSourceBuffer is a promise-based wrapper around the browser's event-driven
@@ -63,10 +65,22 @@ export class ManagedSourceBuffer implements ISourceBuffer {
 
   /**
    * Change the MIME+codecs type of the underlying SourceBuffer.
-   * Throws if the browser does not support SourceBuffer.changeType().
+   *
+   * The application is queued so it cannot race with an in-flight append or
+   * remove. Callers should not attempt to append data for the new type until
+   * the queue has drained past this operation — in practice this is guaranteed
+   * naturally because subsequent append() calls are themselves queued.
+   *
+   * Pre-validates the type synchronously via isTypeSupported() so that callers
+   * using a try/catch to detect unsupported types still get a synchronous throw,
+   * matching the browser's own error contract for this failure mode.
    */
   changeType(type: string): void {
-    this.sourceBuffer.changeType(type);
+    if (!MediaSource.isTypeSupported(type)) {
+      throw new DOMException(`The type '${type}' is not supported.`, 'NotSupportedError');
+    }
+    this.queue.push({ kind: 'changeType', mimeAndCodecs: type, resolve: () => {}, reject: () => {} });
+    this.processQueue();
   }
 
   get updating(): boolean {
@@ -87,8 +101,16 @@ export class ManagedSourceBuffer implements ISourceBuffer {
   get timestampOffset(): number {
     return this.sourceBuffer.timestampOffset;
   }
+
+  /**
+   * Queued. The assignment to the underlying SourceBuffer is deferred until all
+   * preceding operations have completed, so it cannot be applied while an append
+   * or remove is in progress. The getter continues to reflect the SourceBuffer's
+   * current (last-applied) value until the queued assignment executes.
+   */
   set timestampOffset(v: number) {
-    this.sourceBuffer.timestampOffset = v;
+    this.queue.push({ kind: 'timestampOffset', value: v, resolve: () => {}, reject: () => {} });
+    this.processQueue();
   }
 
   private processQueue(): void {
@@ -144,6 +166,23 @@ export class ManagedSourceBuffer implements ISourceBuffer {
             this.isProcessing = false;
             this.processQueue();
           }
+          break;
+        case 'changeType':
+          // Synchronous — no updateend fired. Executes in order after all
+          // preceding appends/removes have settled.
+          this.sourceBuffer.changeType(operation.mimeAndCodecs);
+          operation.resolve();
+          this.queue.shift();
+          this.isProcessing = false;
+          this.processQueue();
+          break;
+        case 'timestampOffset':
+          // Synchronous — no updateend fired.
+          this.sourceBuffer.timestampOffset = operation.value;
+          operation.resolve();
+          this.queue.shift();
+          this.isProcessing = false;
+          this.processQueue();
           break;
       }
     } catch (error) {

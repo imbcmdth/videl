@@ -110,12 +110,10 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   connectedCallback(): void {
     super.connectedCallback();
-    this.addEventListener('videl:done', this.#onPeriodDone);
     document.addEventListener('fullscreenchange', this.#onFullscreenChange);
   }
 
   disconnectedCallback(): void {
-    this.removeEventListener('videl:done', this.#onPeriodDone);
     document.removeEventListener('pointerdown', this.#onDocPointerDown, true);
     document.removeEventListener('fullscreenchange', this.#onFullscreenChange);
     super.disconnectedCallback();
@@ -303,35 +301,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     }
   }
 
-  /**
-   * Detect when the last period completes and escalate as presentation done.
-   * SequentialMixin handles *advancement* to the next period; this handles
-   * the *termination* case (no next period sibling exists).
-   */
-  #onPeriodDone = (event: Event): void => {
-    const target = event.target as Element;
-    const self   = this as unknown as HTMLElement;
-    if (target.parentElement !== self) {
-      return;
-    }
-    if (target.tagName.toLowerCase() !== 'videl-period') {
-      return;
-    }
-    // If a next period sibling exists, SequentialMixin already activated it.
-    let nextPeriod = target.nextElementSibling;
-    while (nextPeriod && nextPeriod.tagName.toLowerCase() !== 'videl-period') {
-      nextPeriod = nextPeriod.nextElementSibling;
-    }
-    if (nextPeriod !== null) {
-      return;
-    }
-
-    self.dispatchEvent(new CustomEvent('videl:done', {
-      bubbles: true,
-      composed: true,
-      detail: { src: this.src }
-    }));
-  };
+  // Period advancement is handled entirely by SequentialMixin listening for
+  // 'videl:done' from child periods. The presentation-level 'videl:done'
+  // (signalling the video has actually finished playing) is fired by the player
+  // when the video element emits 'ended' — i.e. after endOfStream() has been
+  // called and the playhead has reached the end of the buffered range.
 
   // ── UI event dispatchers ──────────────────────────────────────────────────
 

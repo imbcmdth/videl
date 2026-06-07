@@ -326,7 +326,8 @@ export class VidelPlayer extends HTMLElement {
     this.addEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
     this.addEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
     this.addEventListener('click',                this.#onPlaylistClick);
-    this.#video.addEventListener('seeking',      this.#onVideoSeeking);
+    this.#video.addEventListener('seeking', this.#onVideoSeeking);
+    this.#video.addEventListener('ended',   this.#onVideoEnded);
     this.addEventListener('pointermove',         this.#onPointerActivity);
     this.addEventListener('pointerdown',         this.#onPointerActivity);
     this.addEventListener('pointerleave',        this.#onPointerLeave);
@@ -357,7 +358,8 @@ export class VidelPlayer extends HTMLElement {
     this.removeEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
     this.removeEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
     this.removeEventListener('click',                this.#onPlaylistClick);
-    this.#video.removeEventListener('seeking',      this.#onVideoSeeking);
+    this.#video.removeEventListener('seeking', this.#onVideoSeeking);
+    this.#video.removeEventListener('ended',   this.#onVideoEnded);
     this.removeEventListener('pointermove',         this.#onPointerActivity);
     this.removeEventListener('pointerdown',         this.#onPointerActivity);
     this.removeEventListener('pointerleave',        this.#onPointerLeave);
@@ -823,6 +825,30 @@ export class VidelPlayer extends HTMLElement {
     this.#stopPump();
     this.#pumpTick();
     this.#startPump();
+  };
+
+  /**
+   * The video element fires `ended` when the playhead reaches the end of the
+   * buffered range AND `endOfStream()` has been called on the MediaSource.
+   * This is the true "presentation is done playing" signal — it fires AFTER
+   * all buffered content has been rendered, not when the last segment is fetched.
+   *
+   * We fire `videl:done` on the active presentation here so the player's own
+   * SequentialMixin (for playlist advancement) receives it at the right moment.
+   * The presentation itself no longer fires `videl:done` — that avoided a race
+   * where "last segment fetched" (used for seamless period transitions) was
+   * incorrectly treated as "video finished playing."
+   */
+  #onVideoEnded = (): void => {
+    const pres = this.#activePresentation;
+    if (!(pres instanceof VidelPresentation)) {
+      return;
+    }
+    pres.dispatchEvent(new CustomEvent('videl:done', {
+      bubbles: true,
+      composed: true,
+      detail: { src: pres.src }
+    }));
   };
 
   // ── User-inactivity helpers ───────────────────────────────────────────────

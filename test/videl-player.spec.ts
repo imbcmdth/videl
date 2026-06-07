@@ -96,21 +96,40 @@ test('criterion 1 — src triggers MPD fetch, builds subtree, and opens MediaSou
 // ---------------------------------------------------------------------------
 // Criterion — addSourceBuffer called once per content type; MSB distributed
 // ---------------------------------------------------------------------------
-test('criterion — SourceBuffer is distributed to adaptation sets before activation', async ({ page }) => {
+test('criterion — SourceBuffer is distributed to adaptation sets during the active phase', async ({ page }) => {
+  // The sourceBuffer is assigned during #setupMse and cleared when the period is
+  // deactivated. We capture it via a MutationObserver on videl-state so we can
+  // record it at the moment the ADS becomes active, before the period completes.
   const result = await page.evaluate(async () => {
     await import('/dist/index.js');
 
     const player = document.createElement('videl-player') as any;
     document.body.appendChild(player);
+
+    let hadSBDuringActive = false;
+
+    // Watch for any videl-adaptation-set that becomes active and record
+    // whether it had a sourceBuffer at that moment.
+    const mo = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        const el = m.target as any;
+        if (el.tagName?.toLowerCase() === 'videl-adaptation-set') {
+          if (el.getAttribute('videl-state') === 'active' && el.sourceBuffer != null) {
+            hadSBDuringActive = true;
+          }
+        }
+      }
+    });
+    mo.observe(player, { subtree: true, attributes: true, attributeFilter: ['videl-state'] });
+
     player.setAttribute('src', '/stream.mpd');
+    await new Promise<void>(r => setTimeout(r, 1500));
+    mo.disconnect();
 
-    await new Promise<void>(r => setTimeout(r, 2000));
-
-    const ads = player.querySelector('videl-adaptation-set') as any;
-    return { hasSB: ads?.sourceBuffer !== null && ads?.sourceBuffer !== undefined };
+    return { hadSBDuringActive };
   });
 
-  expect(result.hasSB).toBe(true);
+  expect(result.hadSBDuringActive).toBe(true);
 });
 
 // ---------------------------------------------------------------------------

@@ -126,7 +126,12 @@ test('criterion 3 — videl:done from period 0 activates period 1', async ({ pag
 // ===========================================================================
 // Criterion 4 — videl:done fires with { src } when last period completes
 // ===========================================================================
-test('criterion 4 — videl:done fires with detail.src when the last period completes', async ({ page }) => {
+// Criterion 4a — period videl:done does NOT fire a presentation-level videl:done.
+// Period completion is an internal signal used only for period advancement.
+// The presentation-level videl:done is fired by the player in response to the
+// video element's 'ended' event — i.e. after endOfStream() and the playhead
+// reaching the buffer end — not at "last segment fetched" time.
+test('criterion 4 — period videl:done does NOT immediately fire presentation-level videl:done', async ({ page }) => {
   const result = await page.evaluate(async () => {
     await import('/dist/index.js');
 
@@ -141,18 +146,18 @@ test('criterion 4 — videl:done fires with detail.src when the last period comp
 
     const events: any[] = [];
     pres.addEventListener('videl:done', (e: any) => {
-      // Only capture events fired by the presentation itself (not re-bubbled
-      // period events — those have e.target !== pres).
-      if (e.target === pres) events.push({ ...e.detail });
+      if (e.target === pres) {
+        events.push({ ...e.detail });
+      }
     });
 
     pres.setAttribute('videl-state', 'active');
     await new Promise<void>(r => setTimeout(r, 30));
 
-    // The only period signals completion.
+    // Period signals completion — this is now an internal signal only.
     p0.dispatchEvent(new CustomEvent('videl:done', {
       bubbles: true,
-      detail: { periodId: 'p0' },
+      detail:  { periodId: 'p0' },
     }));
 
     await new Promise<void>(r => setTimeout(r, 10));
@@ -160,8 +165,9 @@ test('criterion 4 — videl:done fires with detail.src when the last period comp
     return events;
   });
 
-  expect(result).toHaveLength(1);
-  expect(result[0].src).toBe('https://example.com/stream.mpd');
+  // The presentation must NOT fire videl:done when a period completes.
+  // Presentation-level done is only fired by the player on video 'ended'.
+  expect(result).toHaveLength(0);
 });
 
 // ===========================================================================
