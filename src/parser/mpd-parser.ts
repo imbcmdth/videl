@@ -58,14 +58,27 @@ export function parseMpd(xml: string, baseUrl: string): HTMLElement {
     throw new ParseError(`Root element must be MPD, got <${mpd.localName}>`);
   }
 
-  return buildPresentation(mpd, baseUrl);
+  // DASH Annex I (I.2): extract the MPD URL's query string so it can be used
+  // as initialQueryString when UrlQueryInfo/@useMPDUrlQuery="true".
+  let mpdQueryString = '';
+  try {
+    mpdQueryString = new URL(baseUrl).search.replace(/^\?/, '');
+  } catch {
+    // baseUrl is not a valid absolute URL — ignore
+  }
+
+  return buildPresentation(mpd, baseUrl, mpdQueryString);
 }
 
 // ---------------------------------------------------------------------------
 // MPD → <videl-presentation>
 // ---------------------------------------------------------------------------
 
-function buildPresentation(mpd: Element, baseUrl: string): HTMLElement {
+function buildPresentation(
+  mpd:            Element,
+  baseUrl:        string,
+  mpdQueryString: string = ''
+): HTMLElement {
   const el = document.createElement('videl-presentation');
 
   // Attributes
@@ -94,9 +107,13 @@ function buildPresentation(mpd: Element, baseUrl: string): HTMLElement {
 
   // Track the running presentation-time cursor so periods without an explicit
   // @start inherit the cumulative offset of all preceding periods.
+  const mpdUrlQuery = computeUrlQuery(mpd, mpdQueryString);
+
   let runningStart = 0;
   for (const period of children(mpd, 'Period')) {
-    const { el: periodEl, nextStart } = buildPeriod(period, mpdBase, mpdDur, runningStart, liveCtx);
+    const { el: periodEl, nextStart } = buildPeriod(
+      period, mpdBase, mpdDur, runningStart, liveCtx, mpdQueryString, mpdUrlQuery
+    );
     el.appendChild(periodEl);
     runningStart = nextStart;
   }
@@ -129,11 +146,13 @@ function parseIsoDateTime(s: string): number {
 // ---------------------------------------------------------------------------
 
 function buildPeriod(
-  period: Element,
-  parentBase: string,
-  mpdDuration: number | undefined,
-  precedingStart: number,
-  liveCtx?: LiveContext
+  period:          Element,
+  parentBase:      string,
+  mpdDuration:     number | undefined,
+  precedingStart:  number,
+  liveCtx?:        LiveContext,
+  mpdQueryString?: string,
+  parentUrlQuery?: string
 ): { el: HTMLElement; nextStart: number } {
   const el = document.createElement('videl-period');
 
@@ -161,11 +180,15 @@ function buildPeriod(
   const base     = resolveBaseUrl(period, parentBase);
   const periodST = readSegTemplate(period);
 
+  const periodUrlQuery = computeUrlQuery(period, mpdQueryString ?? '');
+  const childUrlQuery  = joinUrlQueries(periodUrlQuery, parentUrlQuery ?? '');
+
   const periodSL = child(period, 'SegmentList');
   for (const ads of children(period, 'AdaptationSet')) {
     el.appendChild(buildAdaptationSet(ads, {
       base, parentST: periodST, parentSL: periodSL ?? undefined,
-      periodStart: start, periodDuration, liveCtx
+      periodStart: start, periodDuration, liveCtx,
+      mpdQueryString: mpdQueryString ?? '', parentUrlQuery: childUrlQuery,
     }));
   }
 
@@ -188,12 +211,14 @@ function buildPeriod(
 function buildAdaptationSet(
   ads: Element,
   ctx: {
-    base:            string;
-    parentST?:       Partial<SegTemplate>;
-    parentSL?:       Element;   // inherited SegmentList
-    periodStart:     number;
-    periodDuration?: number;
-    liveCtx?:        LiveContext;
+    base:             string;
+    parentST?:        Partial<SegTemplate>;
+    parentSL?:        Element;   // inherited SegmentList
+    periodStart:      number;
+    periodDuration?:  number;
+    liveCtx?:         LiveContext;
+    mpdQueryString?:  string;
+    parentUrlQuery?:  string;
   }
 ): HTMLElement {
   const el = document.createElement('videl-adaptation-set');
@@ -231,6 +256,9 @@ function buildAdaptationSet(
   // inherited by Representations that don't define their own.
   const adsSL   = child(ads, 'SegmentList') ?? ctx.parentSL;
 
+  const adsUrlQuery   = computeUrlQuery(ads, ctx.mpdQueryString ?? '');
+  const childUrlQuery = joinUrlQueries(adsUrlQuery, ctx.parentUrlQuery ?? '');
+
   // Build all representation elements
   const repElements = children(ads, 'Representation').map(rep =>
     buildRepresentation(rep, {
@@ -242,6 +270,8 @@ function buildAdaptationSet(
       parentMimeType: mimeType,
       parentCodecs: codecs,
       liveCtx: ctx.liveCtx,
+      mpdQueryString: ctx.mpdQueryString ?? '',
+      parentUrlQuery: childUrlQuery,
     }));
 
   // For video adaptation sets, sort representations by increasing bandwidth
@@ -287,14 +317,16 @@ function buildNoneTextAds(): HTMLElement {
 function buildRepresentation(
   rep: Element,
   ctx: {
-    base:            string;
-    parentST?:       Partial<SegTemplate>;
-    parentSL?:       Element;
-    periodStart:     number;
-    periodDuration?: number;
-    parentMimeType:  string;
-    parentCodecs:    string;
-    liveCtx?:        LiveContext;
+    base:             string;
+    parentST?:        Partial<SegTemplate>;
+    parentSL?:        Element;
+    periodStart:      number;
+    periodDuration?:  number;
+    parentMimeType:   string;
+    parentCodecs:     string;
+    liveCtx?:         LiveContext;
+    mpdQueryString?:  string;
+    parentUrlQuery?:  string;
   }
 ): HTMLElement {
   const el = document.createElement('videl-representation');
@@ -326,10 +358,13 @@ function buildRepresentation(
   const repST  = readSegTemplate(rep);
   const st     = mergeSegTemplate(ctx.parentST, repST);
 
+  const repUrlQuery = computeUrlQuery(rep, ctx.mpdQueryString ?? '');
+  const urlQuery    = joinUrlQueries(repUrlQuery, ctx.parentUrlQuery ?? '');
+
   buildSegments(rep, el, {
     base, st, parentSL: ctx.parentSL,
     periodStart: ctx.periodStart, periodDuration: ctx.periodDuration,
-    id, bandwidth, liveCtx: ctx.liveCtx,
+    id, bandwidth, liveCtx: ctx.liveCtx, urlQuery,
   });
 
   return el;
@@ -351,9 +386,10 @@ function buildSegments(
     id:              string;
     bandwidth:       number;
     liveCtx?:        LiveContext;
+    urlQuery?:       string;
   }
 ): void {
-  const { base, st, parentSL, periodStart, periodDuration, id, bandwidth, liveCtx } = ctx;
+  const { base, st, parentSL, periodStart, periodDuration, id, bandwidth, liveCtx, urlQuery } = ctx;
 
   // Stamp timestamp-offset = periodStart - pto/timescale on the representation
   // element so videl-representation can set SourceBuffer.timestampOffset after
@@ -383,7 +419,7 @@ function buildSegments(
   // 1:1 XML-to-DOM transform — no computation required, stays in the parser.
   const sl = child(rep, 'SegmentList') ?? parentSL;
   if (sl) {
-    buildSegmentList(sl, repEl, base);
+    buildSegmentList(sl, repEl, base, urlQuery);
     return;
   }
 
@@ -407,7 +443,7 @@ function buildSegments(
   // ── SegmentTemplate ────────────────────────────────────────────────────────
   // Stamp raw template data.  VidelRepresentation expands $Number$/$Time$ and
   // creates <videl-segment> children at activation time.
-  stampSegmentTemplate(repEl, st as SegTemplate, { id, bandwidth }, base, liveCtx);
+  stampSegmentTemplate(repEl, st as SegTemplate, { id, bandwidth }, base, liveCtx, urlQuery);
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +458,10 @@ function buildSegments(
  */
 function stampSegmentBase(rep: Element, repEl: HTMLElement, base: string): void {
   const sb     = child(rep, 'SegmentBase')!;
-  const segUrl = resolveBaseUrl(rep, base);
+  // `base` already has the Representation's <BaseURL> resolved into it by the
+  // caller (buildRepresentation → resolveBaseUrl).  Do NOT call resolveBaseUrl
+  // again here or the BaseURL path component gets appended twice.
+  const segUrl = base;
 
   const init = child(sb, 'Initialization');
   if (init) {
@@ -439,6 +478,18 @@ function stampSegmentBase(rep: Element, repEl: HTMLElement, base: string): void 
   const indexRange = sb.getAttribute('indexRange');
   if (indexRange) {
     repEl.setAttribute('segment-base-index-range', indexRange);
+    // When there is no explicit <Initialization> element but an indexRange is
+    // present, the init segment is implicitly the bytes before the index:
+    // bytes 0 through (indexRange.start - 1).  Stamp synthetic init attributes
+    // so VidelRepresentation fetches them instead of treating the representation
+    // as self-initialising.
+    if (!init) {
+      const indexStart = Number(indexRange.split('-')[0]);
+      if (!isNaN(indexStart) && indexStart > 0) {
+        repEl.setAttribute('initialization-url', segUrl);
+        repEl.setAttribute('initialization-byte-range', `0-${indexStart - 1}`);
+      }
+    }
   }
 }
 
@@ -457,24 +508,28 @@ function stampSegmentBase(rep: Element, repEl: HTMLElement, base: string): void 
  *   output: "https://cdn.example.com/video/vid1/seg$Number$.m4s"
  */
 function stampSegmentTemplate(
-  repEl:   HTMLElement,
-  st:      SegTemplate,
-  vars:    { id: string; bandwidth: number },
-  base:    string,
-  liveCtx?: LiveContext
+  repEl:    HTMLElement,
+  st:       SegTemplate,
+  vars:     { id: string; bandwidth: number },
+  base:     string,
+  liveCtx?: LiveContext,
+  urlQuery?: string
 ): void {
-  // Stamp initialization-url (unchanged from before).
+  // Stamp initialization-url.
   if (st.initialization) {
-    repEl.setAttribute(
-      'initialization-url',
-      resolveUrl(expandTemplate(st.initialization, vars), base)
-    );
+    const initUrl = resolveUrl(expandTemplate(st.initialization, vars), base);
+    repEl.setAttribute('initialization-url', appendUrlQuery(initUrl, urlQuery ?? ''));
   }
 
   // Pre-expand identity vars in the media template then resolve against base.
   // $Number$ and $Time$ tokens survive because vars does not include them,
   // and expandTemplate preserves unknown/undefined variables intact.
-  const resolvedMedia = resolveUrl(expandTemplate(st.media!, vars), base);
+  // The URL query is appended to the pre-resolved template so that it is
+  // present on every per-segment URL expanded later by VidelRepresentation.
+  const resolvedMedia = appendUrlQuery(
+    resolveUrl(expandTemplate(st.media!, vars), base),
+    urlQuery ?? ''
+  );
   repEl.setAttribute('segment-template-media',        resolvedMedia);
   repEl.setAttribute('segment-template-timescale',    String(st.timescale));
   repEl.setAttribute('segment-template-start-number', String(st.startNumber));
@@ -515,7 +570,7 @@ function stampSegmentTemplate(
 }
 
 // SegmentList → one segment per SegmentURL
-function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
+function buildSegmentList(sl: Element, repEl: HTMLElement, base: string, urlQuery?: string): void {
   const timescale  = Number(sl.getAttribute('timescale') ?? 1);
   const segDuration = sl.hasAttribute('duration') ? Number(sl.getAttribute('duration')) : undefined;
 
@@ -525,7 +580,7 @@ function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
     const src   = init.getAttribute('sourceURL');
     const range = init.getAttribute('range');
     if (src) {
-      repEl.setAttribute('initialization-url', resolveUrl(src, base));
+      repEl.setAttribute('initialization-url', appendUrlQuery(resolveUrl(src, base), urlQuery ?? ''));
       if (range) {
         repEl.setAttribute('initialization-byte-range', range);
       }
@@ -538,7 +593,7 @@ function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
     const mediaRange = su.getAttribute('mediaRange');
 
     const segEl = document.createElement('videl-segment');
-    segEl.setAttribute('url', resolveUrl(media, base));
+    segEl.setAttribute('url', appendUrlQuery(resolveUrl(media, base), urlQuery ?? ''));
     if (mediaRange) {
       segEl.setAttribute('byte-range', mediaRange);
     }
@@ -624,6 +679,100 @@ function resolveBaseUrl(el: Element, parentBase: string): string {
     }
   }
   return resolveUrl(text, parentBase);
+}
+
+// ---------------------------------------------------------------------------
+// DASH Annex I — URL query parameter helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the finalQueryString for the first URL-parameter descriptor
+ * (EssentialProperty or SupplementalProperty with
+ * schemeIdUri="urn:mpeg:dash:urlparam:2014") found on `el`.
+ *
+ * Implements I.2.3.2 (initialQueryString) and I.2.3.3 (finalQueryString).
+ * Returns '' when no applicable descriptor is found.
+ */
+function computeUrlQuery(el: Element, mpdQueryString: string): string {
+  for (const propName of ['EssentialProperty', 'SupplementalProperty'] as const) {
+    for (const ep of children(el, propName)) {
+      if (ep.getAttribute('schemeIdUri') !== 'urn:mpeg:dash:urlparam:2014') {
+        continue;
+      }
+      const uqi = child(ep, 'UrlQueryInfo');
+      if (!uqi) {
+        continue;
+      }
+
+      // I.2.3.2: build initialQueryString
+      const useMPD    = uqi.getAttribute('useMPDUrlQuery') === 'true';
+      const qsAttr    = uqi.getAttribute('queryString') ?? '';
+      let initialQS   = '';
+      if (useMPD && qsAttr) {
+        initialQS = mpdQueryString ? `${mpdQueryString}&${qsAttr}` : qsAttr;
+      } else if (useMPD) {
+        initialQS = mpdQueryString;
+      } else {
+        initialQS = qsAttr;
+      }
+
+      if (!initialQS) {
+        return '';
+      }
+
+      const queryTemplate = uqi.getAttribute('queryTemplate');
+      if (!queryTemplate) {
+        // No template — pass initialQueryString through as-is.
+        return initialQS;
+      }
+
+      // I.2.3.3: substitute $querypart$ and $query:<param>$ identifiers.
+      // Build param lookup table from initialQS.
+      const params: Record<string, string> = {};
+      for (const pair of initialQS.split('&')) {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx > 0) {
+          params[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+        }
+      }
+
+      let finalQS = queryTemplate;
+      // Handle $$ escape first (replace with a sentinel, restore at end).
+      finalQS = finalQS.replace(/\$\$/g, '\x00');
+      // $querypart$ → entire initialQS
+      finalQS = finalQS.replace(/\$querypart\$/g, initialQS);
+      // $query:<param>$ → value of named param (empty string if absent)
+      finalQS = finalQS.replace(/\$query:([^$]+)\$/g, (_, param: string) => params[param] ?? '');
+      // Restore $$ → $
+      finalQS = finalQS.replace(/\x00/g, '$');
+
+      return finalQS;
+    }
+  }
+  return '';
+}
+
+/**
+ * Concatenate two finalQueryString values.
+ * Per I.2.3.3 the more-specific (Rep) level's string comes before the less-
+ * specific (ADS / Period / MPD) inherited string.
+ */
+function joinUrlQueries(specific: string, inherited: string): string {
+  if (specific && inherited) {
+    return `${specific}&${inherited}`;
+  }
+  return specific || inherited;
+}
+
+/**
+ * Append a query string to a URL per I.2.3.4:
+ * use '?' when the URL has no query, '&' when it already does.
+ */
+function appendUrlQuery(url: string, query: string): string {
+  if (!query) {
+    return url;
+  }
+  return url.includes('?') ? `${url}&${query}` : `${url}?${query}`;
 }
 
 // ---------------------------------------------------------------------------
