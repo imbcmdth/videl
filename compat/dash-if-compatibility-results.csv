@@ -1,0 +1,70 @@
+source name,url,manifest fetchable,audio init,video init,text init,audio segments,video segments,text segments,playing
+"SegmentBase, ondemand profile",https://dash.akamaized.net/dash264/TestCases/1a/sony/SNE_DASH_SD_CASE1A_REVISED.mpd,yes,yes,yes,no,1,1,0,yes
+"SegmentTemplate/Number, live profile, 250kbps up to 15Mbps@4K.",https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd,yes,yes,yes,no,11,11,0,yes
+"SegmentTemplate/SegmentTimeline $time, ondemand profile",https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd,yes,yes,yes,no,22,21,0,yes
+"Multiperiod, 2 periods, SegmentTemplate $number",https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd,yes,yes,yes,no,22,21,0,yes
+"SegmentTemplate, live profile",https://dash.akamaized.net/envivio/EnvivioDash3/manifest.mpd,yes,yes,yes,no,21,21,0,yes
+"On-demand Testcard - Multiple Languages, AAC Stereo and Surround, Audio Description, AVC Video",https://rdmedia.bbc.co.uk/testcard/vod/manifests/avc-full.mpd,yes,yes,yes,yes,11,11,24,yes
+"Single-period, 1080p, H.264, 5 video, 3 audio, 3 text tracks, CMAF, no encryption",https://media.axprod.net/TestVectors/Cmaf/clear_1080p_h264/manifest.mpd,yes,yes,yes,yes,7,7,1,yes
+"Single-period, 1080p, H.265, 5 video, 3 audio, 3 text tracks, CMAF, no encryption",https://media.axprod.net/TestVectors/H265/clear_cmaf_1080p_h265/manifest.mpd,yes,yes,yes,yes,7,7,1,yes
+"Single-period, 1080p, H.264, 5 video, 3 audio, 3 text tracks, DASH, no encryption",https://media.axprod.net/TestVectors/Dash/not_protected_dash_1080p_h264/manifest.mpd,yes,yes,yes,yes,11,11,11,yes
+"Single-period, 1080p, H.265, 5 video, 3 audio, 3 text tracks, DASH, no encryption",https://media.axprod.net/TestVectors/H265/clear_dash_1080p_h265/manifest.mpd,yes,yes,yes,yes,11,11,11,yes
+1080p without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest_1080p.mpd,yes,yes,yes,yes,11,11,11,yes
+2160p without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest.mpd,yes,yes,yes,yes,11,11,11,yes
+Multi-period 1080p without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest_MultiPeriod_1080p.mpd,yes,yes,yes,yes,11,11,11,yes
+Multi-period 2160p without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest_MultiPeriod.mpd,yes,yes,yes,yes,11,11,11,yes
+"Complex multi-period with different content, clear",https://media.axprod.net/TestVectors/v8-MultiContent/Clear/Manifest.mpd,yes,yes,yes,yes,11,11,11,yes
+4K SegmentBase ,https://dash.akamaized.net/akamai/streamroot/050714/Spring_4Ktest.mpd,yes,yes,yes,no,0,0,0,no
+"Caminandes 01, Llama Drama (25fps, 75gop, 1080p) ",http://refapp.hbbtv.org/videos/01_llama_drama_1080p_25f75g6sv3/manifest.mpd,yes,yes,yes,no,7,7,0,yes
+"Caminandes 02, Gran Dillama (25fps, 75gop, 1080p, KID=1236, subob,evtib) v5 ",http://refapp.hbbtv.org/videos/02_gran_dillama_1080p_25f75g6sv5/manifest_subob_evtib.mpd,yes,yes,yes,yes,7,7,1,yes
+"Tears of Steel (25fps, 75gop, 1080p, KID=1237) v3",http://refapp.hbbtv.org/videos/tears_of_steel_1080p_25f75g6sv3/manifest.mpd,yes,yes,yes,no,7,7,0,yes
+"Caminandes 02, Gran Dillama (25fps, 75gop, 1080p, KID=1236), multiaudio v4",http://refapp.hbbtv.org/videos/02_gran_dillama_1080p_ma_25f75g6sv4/manifest_subob_evtib.mpd,yes,yes,yes,yes,7,7,1,yes
+"Caminandes 02, Gran Dillama (25fps, 75gop, 1080p, KID=1236), multiaudio v5",http://refapp.hbbtv.org/videos/02_gran_dillama_1080p_ma_25f75g6sv5/manifest.mpd,yes,yes,yes,no,7,7,0,yes
+"Spring (25fps, 75gop, 1920x804(2.40) h264, KID=148D) v1",http://refapp.hbbtv.org/videos/spring_804p_v1/manifest.mpd,yes,yes,yes,no,7,7,0,yes
+Multiple AdaptationSets,https://ott.dolby.com/webapi/testasset_dashjs/multiAudio.mpd,yes,yes,yes,no,7,7,0,yes
+SegmentTemplate without manifest updates (livesim),https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,28,0,yes
+SegmentTemplate with manifest updates every 30s (livesim),https://livesim2.dashif.org/livesim2/mup_30/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,30,0,yes
+SegmentTimeline with $time (livesim),https://livesim2.dashif.org/livesim2/segtimeline_1/testpic_2s/Manifest.mpd,yes,yes,yes,no,23,29,0,yes
+SegmentTimeline with $number (livesim),https://livesim2.dashif.org/livesim2/segtimelinenr_1/testpic_2s/Manifest.mpd,yes,yes,yes,no,23,30,0,yes
+Multiperiod SegmentTemplate. New period every minute (livesim),https://livesim2.dashif.org/livesim2/periods_60/continuous_1/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,30,0,yes
+SegmentTimeline with manifest updates provided via MPD patches,https://livesim2.dashif.org/livesim2/segtimeline_1/patch_60/testpic_2s/Manifest.mpd,yes,yes,yes,no,23,31,0,yes
+Multiperiod SegmentTemplate with manifest updates provided via MPD patches,https://livesim2.dashif.org/livesim2/segtimeline_0/patch_60/periods_60/testpic_2s/Manifest.mpd,yes,yes,yes,no,8,8,0,yes
+10 seconds availabilityTimeOffset (livesim), https://livesim2.dashif.org/livesim2/ato_10/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,30,0,yes
+Infinite offset - all segments available at availability start (livesim),https://livesim2.dashif.org/livesim2/ato_inf/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,22,0,yes
+SCTE35 events,https://livesim2.dashif.org/livesim2/scte35_2/testpic_2s/Manifest.mpd,yes,yes,yes,no,22,30,0,yes
+Annex I query parameters in the Video AdaptationSet,https://livesim.dashif.org/livesim2/annexI_dashjs=rocks/testpic_6s/Manifest.mpd?dashjs=rocks,yes,yes,yes,no,0,0,0,no
+Unified Streaming reference stream with scte35 markers,https://demo.unified-streaming.com/k8s/live/scte35.isml/.mpd,yes,yes,yes,no,25,31,0,yes
+Multiperiod - Number + Timeline - Compact manifest - Thumbnails (1 track) - In-the-clear,https://d24rwxnt7vw9qb.cloudfront.net/v1/dash/e6d234965645b411ad572802b6c9d5a10799c9c1/All_Reference_Streams/4577dca5f8a44756875ab5cc913cd1f1/index.mpd,yes,yes,yes,no,0,0,0,no
+Multiperiod - Number + Timeline - Full manifest - Thumbnails (1 track) - In-the-clear,https://d24rwxnt7vw9qb.cloudfront.net/v1/dash/e6d234965645b411ad572802b6c9d5a10799c9c1/All_Reference_Streams/ee565ea510cb4b4d8df5f48918c3d6dc/index.mpd,yes,yes,yes,no,0,0,0,no
+Multiperiod - Time + Timeline - Compact manifest - Thumbnails (1 track) - In-the-clear,https://d24rwxnt7vw9qb.cloudfront.net/v1/dash/e6d234965645b411ad572802b6c9d5a10799c9c1/All_Reference_Streams/91d37b0389de47e0b5266736d3633077/index.mpd,yes,yes,yes,no,0,0,0,no
+Multiperiod - Time + Timeline - Full manifest - Thumbnails (1 track) - In-the-clear,https://d24rwxnt7vw9qb.cloudfront.net/v1/dash/e6d234965645b411ad572802b6c9d5a10799c9c1/All_Reference_Streams/6ba06d17f65b4e1cbd1238eaa05c02c1/index.mpd,yes,yes,yes,no,0,0,0,no
+Single period - Number + Duration - Full manifest - Thumbnails (2 tracks: 174p/1080p) - In-the-clear,https://d10gktn8v7end7.cloudfront.net/out/v1/6ee19df3afa24fe190a8ae16c2c88560/index.mpd,yes,yes,yes,no,0,0,0,no
+"Main (3 video bitrates, 2 audio languages,3 subtitle languages) + Advertisement, Multiperiod","https://refapp.hbbtv.org/videos/multiperiod_v8.php?drm=0&advert=1&emsg=0&video=v1,v2,v3&audiolang=eng,fin&sublang=eng,fin,swe&mup=2&spd=8",yes,yes,yes,yes,0,0,0,no
+"Live Testcard - Multiple Languages, AVC Video",https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/avc-full.mpd,yes,yes,yes,yes,26,15,42,yes
+"Live Testcard - Multiple Languages, HEVC Video",https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/hevc-ctv.mpd,yes,yes,yes,yes,10,11,45,no
+External VTT subtitle file,https://dash.akamaized.net/akamai/test/caption_test/ElephantsDream/elephants_dream_480p_heaac5_1_https.mpd,yes,yes,yes,yes,9,9,1,yes
+TTML Segmented Subtitles VoD,https://livesim2.dashif.org/vod/testpic_2s/multi_subs.mpd,yes,yes,yes,yes,21,21,21,yes
+TTML Segmented Subtitles Live (livesim),https://livesim2.dashif.org/livesim2/testpic_2s/multi_subs.mpd,yes,yes,yes,yes,21,21,21,yes
+TTML Sideloaded XML Subtitles,https://livesim2.dashif.org/vod/testpic_2s/ttml_subs.mpd,yes,yes,yes,yes,21,21,1,yes
+Embedded CEA-608 Closed Captions,https://livesim2.dashif.org/vod/testpic_2s/cea608.mpd,yes,yes,yes,no,21,21,0,yes
+Embedded CEA-608 Closed Captions (livesim),https://livesim2.dashif.org/livesim2/testpic_2s/cea608.mpd,yes,yes,yes,no,22,29,0,yes
+Embedded CEA-608 Closed Captions and TTML segments VoD,https://livesim2.dashif.org/vod/testpic_2s/cea608_and_segs.mpd,yes,yes,yes,yes,21,21,21,yes
+Embedded CEA-608 Closed Captions and TTML segments Live (livesim),https://livesim2.dashif.org/livesim2/testpic_2s/cea608_and_segs.mpd,yes,yes,yes,yes,21,21,21,yes
+IMSC1 (CMAF) Image Subtitles,https://livesim2.dashif.org/vod/testpic_2s/imsc1_img.mpd,yes,yes,yes,yes,21,21,30,yes
+TTML Image Subtitles embedded (VoD),https://livesim2.dashif.org/vod/testpic_2s/img_subs.mpd,yes,yes,yes,yes,7,7,1,yes
+On-demand Elephant's Dream - with EBU-TT-D Subtitle Track in English,https://rdmedia.bbc.co.uk/elephants_dream/1/client_manifest-all.mpd,yes,yes,yes,yes,9,9,37,yes
+On-demand Elephant's Dream - with EBU-TT-D 'Snaking' Subtitle Track (random text) - lines grow over time simulating live subtitles,https://rdmedia.bbc.co.uk/elephants_dream/1/client_manifest-snake.mpd,yes,yes,yes,yes,9,9,37,yes
+Live Testcard - Multiple Subtitle Languages and Downloadable Font Signalling,https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/avc-ctv.mpd,yes,yes,yes,yes,10,13,45,no
+On-demand Testcard - WOFF Font Download signalled with supplemental property descriptor,https://rdmedia.bbc.co.uk/testcard/vod/manifests/avc-ctv-stereo-en-sfdt-woff.mpd,yes,yes,yes,yes,11,11,39,yes
+On-demand Testcard - WOFF Font Download signalled with essential property descriptor,https://rdmedia.bbc.co.uk/testcard/vod/manifests/avc-ctv-stereo-en-efdt-woff.mpd,yes,yes,yes,yes,11,11,39,yes
+Live Testcard - WOFF Font Download signalled with supplemental property descriptor,https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/avc-ctv-stereo-en-sfdt-woff.mpd,yes,yes,yes,yes,10,14,37,no
+Live Testcard - WOFF Font Download signalled with essential property descriptor,https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/avc-ctv-stereo-en-efdt-woff.mpd,yes,yes,yes,yes,9,18,44,no
+IMSC1 Text Subtitles via sidecar file,https://dash.akamaized.net/dash264/CTA/imsc1/IT1-20171027_dash.mpd,yes,yes,yes,yes,14,14,1,yes
+Arte forced-subtitles,https://arteamd1.akamaized.net/GPU/034000/034700/034755-230-A/221125154117/034755-230-A_8_DA_v20221125.mpd,yes,yes,yes,yes,0,0,0,no
+48k AAC-LC Stereo Beeps (Live),https://livesim2.dashif.org/livesim2/testpic_2s/audio.mpd,yes,yes,no,no,22,0,0,yes
+48k AAC-LC Stereo Beeps (Ondemand),https://livesim2.dashif.org/vod/testpic_2s/audio.mpd,yes,yes,no,no,21,0,0,yes
+Live Testcard Audio - AAC-LC Stereo in English,https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/radio-lc-en.mpd,yes,yes,no,no,13,0,0,yes
+Live Testcard Audio - HE-AAC Stereo in English,https://rdmedia.bbc.co.uk/testcard/simulcast/manifests/radio-he-en.mpd,yes,yes,no,no,13,0,0,yes
+On-demand Testcard Audio - AAC-LC Surround (4 active channels) in English,https://rdmedia.bbc.co.uk/testcard/vod/manifests/radio-surround-en.mpd,yes,yes,no,no,11,0,0,yes
+Audio without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest_AudioOnly.mpd,yes,yes,no,no,11,0,0,yes
+Multi-period audio without encryption,https://media.axprod.net/TestVectors/v7-Clear/Manifest_MultiPeriod_AudioOnly.mpd,yes,yes,no,no,11,0,0,yes

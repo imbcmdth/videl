@@ -625,6 +625,12 @@ export class VidelPlayer extends HTMLElement {
       const codecs    = firstRep?.getAttribute('codecs')     ?? adsCodecs;
       const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
 
+      const isValidContentType = ['text', 'video', 'audio'].indexOf(contentType) >= 0;
+      if (!isValidContentType) {
+        console.warn(`Skipping source buffer creation for content type "${contentType}" which is not "text", "video", or "audio". `);
+        continue;
+      }
+
       // Text tracks use a TextSourceBuffer — no real MSE SourceBuffer needed.
       if (contentType === 'text') {
         if (this.#sourceBuffers.has('text')) {

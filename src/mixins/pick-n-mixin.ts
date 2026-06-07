@@ -81,6 +81,11 @@ export function PickNMixin<TBase extends CEBase>(Base: TBase) {
     activateChild(el: Element): void {
       const key  = this.getSlotKey(el);
       const prev = this.#activeByKey.get(key);
+      const isValidKey = ['text', 'video', 'audio'].indexOf(key) >= 0;
+      if (!isValidKey) {
+       console.warn(`Skipping activation of child with key "${key}" which is not "text", "video", or "audio". `);
+        return;
+      }
       if (prev && prev !== el) {
         prev.removeAttribute('videl-state');
       }
