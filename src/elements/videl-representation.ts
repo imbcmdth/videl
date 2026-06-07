@@ -2,6 +2,8 @@ import { LitElement, html, nothing } from 'lit';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from '../lib/ergo-mse';
+import { parseSidx } from '../lib/mp4';
+import { expandTemplate, resolveUrl } from '../parser/template-utils';
 import { VidelSegment } from './videl-segment';
 import { trace } from '../trace';
 
@@ -103,6 +105,32 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
      * Absent (default 0) when @presentationTimeOffset is zero or not specified.
      */
     timestampOffset: { type: Number,  attribute: 'timestamp-offset' },
+
+    // ── SegmentTemplate addressing (stamped by parser, expanded at activation) ──
+    /** Pre-expanded (id/bandwidth) + base-resolved media URL template.
+     *  $Number$ and $Time$ tokens remain for expansion per-segment. */
+    segmentTemplateMedia:       { type: String,  attribute: 'segment-template-media' },
+    segmentTemplateTimescale:   { type: Number,  attribute: 'segment-template-timescale' },
+    segmentTemplateStartNumber: { type: Number,  attribute: 'segment-template-start-number' },
+    segmentTemplatePto:         { type: Number,  attribute: 'segment-template-pto' },
+    /** Fixed segment duration in timescale ticks (@duration, no SegmentTimeline). */
+    segmentTemplateDuration:    { type: Number,  attribute: 'segment-template-duration' },
+    /** JSON-serialised [{t?,d,r}] from SegmentTimeline <S> elements. */
+    segmentTemplateTimeline:    { type: String,  attribute: 'segment-template-timeline' },
+
+    // ── SegmentBase addressing (stamped by parser, resolved at activation) ──
+    /** Resolved base URL for the media file (SegmentBase or ISO on-demand). */
+    segmentBaseUrl:        { type: String,  attribute: 'segment-base-url' },
+    /** indexRange from SegmentBase/@indexRange — if present, a sidx fetch is required. */
+    segmentBaseIndexRange: { type: String,  attribute: 'segment-base-index-range' },
+    /** ISO on-demand: period duration stamped for the whole-file single segment. */
+    periodDuration:        { type: Number,  attribute: 'period-duration' },
+
+    /** Present when MPD@type="dynamic" — suppresses isFullyFetched, enables live extension. */
+    live: { type: Boolean },
+    /** DVR window depth in seconds from MPD@timeShiftBufferDepth. */
+    timeShiftBufferDepth:  { type: Number,  attribute: 'time-shift-buffer-depth' },
+
     slot: { type: String,  reflect: true },
     /** Set by the parent adaptation-set when this rep is manually pinned. */
     pinned: { type: Boolean },
@@ -118,9 +146,25 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   initializationUrl        = '';
   initializationByteRange: string | null = null;
   timestampOffset          = 0;
-  slot                     = '';
-  pinned                   = false;
-  debug                    = false;
+
+  // SegmentTemplate
+  segmentTemplateMedia       = '';
+  segmentTemplateTimescale   = 1;
+  segmentTemplateStartNumber = 1;
+  segmentTemplatePto         = 0;
+  segmentTemplateDuration    = 0;
+  segmentTemplateTimeline    = '';
+
+  // SegmentBase / ISO on-demand
+  segmentBaseUrl        = '';
+  segmentBaseIndexRange = '';
+  periodDuration        = 0;
+
+  live                  = false;
+  timeShiftBufferDepth  = 0;
+  slot   = '';
+  pinned = false;
+  debug  = false;
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
 
@@ -211,6 +255,17 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     }
 
     if (value === 'next' || value === 'active') {
+      // For live streams, compute the timestamp offset exactly once — before
+      // #startInit so the computed value is applied when the init append
+      // completes and sourceBuffer.timestampOffset is set.
+      if (this.live && !this.#initAppended) {
+        this.#computeLiveTimestampOffset();
+      }
+      // Populate segments first (sync for SegmentTemplate/SegmentBase-no-sidx,
+      // async for sidx).  #startInit follows immediately — for sidx streams
+      // the init fetch and sidx fetch run concurrently; the pump's
+      // #initAppended gate prevents segment walks until both complete.
+      this.#populateSegments();
       this.#startInit();
     } else if (value === null) {
       this.#initController?.abort();
@@ -281,6 +336,13 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       });
       return;
     }
+
+    // For live representations, extend the segment list before the walk so that
+    // newly available segments exist for the pump to act on this tick.  This
+    // must happen before the segs.length === 0 guard — for live that guard
+    // would always fire on the first tick (no segments yet) and prevent the
+    // extension from ever running.
+    this.#extendLiveSegments();
 
     const segs = this.#childSegments;
     if (segs.length === 0) {
@@ -387,8 +449,14 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
    * new position, so `#fetchedSegments` will never contain the skipped ones.
    * What matters for seamless period transitions is that the segment adjacent
    * to the next period boundary has been buffered — i.e. the last one.
+   *
+   * Always returns `false` for live representations — there is no stable
+   * "last" segment in a live stream, so the period must never signal done.
    */
   get isFullyFetched(): boolean {
+    if (this.live) {
+      return false;
+    }
     const segs    = this.#childSegments;
     const lastSeg = segs[segs.length - 1];
     return lastSeg !== undefined && this.#fetchedSegments.has(lastSeg);
@@ -421,6 +489,327 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       detail: { rep: this }
     }));
   };
+
+  // ── Live timestamp offset ─────────────────────────────────────────────────
+
+  /**
+   * Compute and stamp the `timestamp-offset` for live (type="dynamic") streams.
+   *
+   * For live DASH the fMP4 decode timestamps are wall-clock-based (e.g.
+   * epoch-seconds when availabilityStartTime="1970-01-01T00:00:00Z").
+   * Without correction, video.currentTime would reflect those raw timestamps
+   * (potentially billions of seconds).
+   *
+   * We want:
+   *   currentTime = 0  → DVR window start (wall clock = now − TSBD)
+   *   currentTime = TSBD → live edge at activation time
+   *
+   * Derivation:
+   *   media decode time of DVR start = (now − TSBD) − availStart
+   *   timestamp-offset = −(media time of DVR start)
+   *                    = availStart + TSBD − now
+   *
+   * The live edge currentTime then grows at 1:1 wall-clock rate:
+   *   liveEdge = (wallClock − availStart) + timestampOffset
+   *            = wallClock − availStart + availStart + TSBD − activationNow
+   *            = TSBD + (wallClock − activationNow)
+   *
+   * Called once on first activation (before #startInit), so #startInit
+   * applies the correct value to SourceBuffer.timestampOffset when the init
+   * segment is appended.
+   */
+  #computeLiveTimestampOffset(): void {
+    const availStr = this.getAttribute('availability-start-time');
+    const tsbdStr  = this.getAttribute('time-shift-buffer-depth');
+    if (!availStr) {
+      return;
+    }
+    const availStart = Number(availStr);
+    const tsbd       = tsbdStr ? Number(tsbdStr) : 30;
+    const nowSec     = Date.now() / 1000;
+    const liveOffset = availStart + tsbd - nowSec;
+    // Stamp on DOM (DOM-first principle) — Lit syncs attribute → property.
+    this.setAttribute('timestamp-offset', String(liveOffset));
+  }
+
+  // ── Segment population ────────────────────────────────────────────────────
+
+  /**
+   * Populate `<videl-segment>` children from the addressing attributes stamped
+   * by the MPD parser.  Called once when `videl-state` first becomes "next" or
+   * "active".  No-op if children are already present (e.g. re-activation after
+   * a "next"→"active" transition or SegmentList representations whose segments
+   * were created by the parser).
+   */
+  #populateSegments(): void {
+    if (this.#childSegments.length > 0) {
+      return;
+    }
+
+    if (this.segmentTemplateMedia) {
+      this.#buildFromTemplate();
+      return;
+    }
+
+    if (this.segmentBaseUrl) {
+      if (this.segmentBaseIndexRange) {
+        // Async — sidx fetch runs concurrently with the init segment fetch.
+        void this.#fetchAndParseSidx();
+      } else {
+        this.#buildFromSegmentBase();
+      }
+      return;
+    }
+    // SegmentList representations already have children from the parser — no-op.
+  }
+
+  /**
+   * Build `<videl-segment>` children from `segment-template-*` attributes.
+   * Mirrors the parser's former `buildFromTimeline` / `buildFromNumber` logic,
+   * now running at activation time with per-representation context.
+   */
+  #buildFromTemplate(): void {
+    const media      = this.segmentTemplateMedia;
+    // Use ?? rather than || so that valid falsy values (startNumber=0, pto=0) are preserved.
+    const timescale  = this.segmentTemplateTimescale  ?? 1;
+    const startNum   = this.segmentTemplateStartNumber ?? 1;
+    const pto        = this.segmentTemplatePto         ?? 0;
+
+    // Period context from the nearest ancestor <videl-period>.
+    const periodEl       = this.closest('videl-period');
+    const periodStart    = Number(periodEl?.getAttribute('start')    ?? 0);
+    const periodDurStr   = periodEl?.getAttribute('duration');
+    const periodDuration = periodDurStr ? Number(periodDurStr) : undefined;
+
+    if (this.segmentTemplateTimeline) {
+      // SegmentTimeline path — uses $Number$ and/or $Time$.
+      let entries: Array<{ d: number; r: number; t?: number }>;
+      try {
+        entries = JSON.parse(this.segmentTemplateTimeline) as typeof entries;
+      } catch {
+        return;
+      }
+
+      let segNumber = startNum;
+      let t         = 0;
+
+      for (const entry of entries) {
+        const sT = entry.t !== undefined ? entry.t : t;
+        const d  = entry.d;
+        if (d === 0) {
+          continue;
+        }
+        let r = entry.r;
+        t = sT;
+
+        if (r === -1) {
+          if (periodDuration !== undefined) {
+            const periodEndTicks = periodDuration * timescale + pto;
+            r = Math.max(0, Math.ceil((periodEndTicks - t) / d) - 1);
+          } else {
+            r = 0;
+          }
+        }
+
+        for (let i = 0; i <= r; i++) {
+          const url       = expandTemplate(media, { number: segNumber, time: t });
+          const startTime = periodStart + (t - pto) / timescale;
+          const duration  = d / timescale;
+          this.#appendSegmentEl(url, startTime, duration);
+          t += d;
+          segNumber++;
+        }
+      }
+    } else if (this.segmentTemplateDuration) {
+      // @duration path — uses $Number$ only.
+      const segDurSec = this.segmentTemplateDuration / timescale;
+      if (periodDuration === undefined || segDurSec <= 0) {
+        return;
+      }
+      const count = Math.ceil(periodDuration / segDurSec);
+      for (let i = 0; i < count; i++) {
+        const segNumber = startNum + i;
+        const url       = expandTemplate(media, { number: segNumber });
+        const startTime = periodStart + i * segDurSec;
+        this.#appendSegmentEl(url, startTime, segDurSec);
+      }
+    }
+  }
+
+  /**
+   * Build a single `<videl-segment>` for a SegmentBase representation that has
+   * no sidx index (or the ISO on-demand whole-file profile).
+   */
+  #buildFromSegmentBase(): void {
+    const url      = this.segmentBaseUrl;
+    const periodEl = this.closest('videl-period');
+    const start    = Number(periodEl?.getAttribute('start') ?? 0);
+    const dur      = this.periodDuration || Number(periodEl?.getAttribute('duration') ?? 0);
+    this.#appendSegmentEl(url, start, dur);
+  }
+
+  /**
+   * Fetch the sidx box at `segment-base-index-range`, parse it, and create
+   * one `<videl-segment>` per media entry.  Runs concurrently with the init
+   * segment fetch — the pump's `#initAppended` gate ensures no segment walks
+   * occur until both are ready.
+   */
+  async #fetchAndParseSidx(): Promise<void> {
+    const url        = this.segmentBaseUrl;
+    const rangeAttr  = this.segmentBaseIndexRange;
+    const [startStr, endStr] = rangeAttr.split('-');
+    const rangeStart = Number(startStr);
+    const rangeEnd   = Number(endStr);
+
+    if (isNaN(rangeStart) || isNaN(rangeEnd) || rangeEnd < rangeStart) {
+      this.dispatchEvent(new CustomEvent('videl:segment:error', {
+        bubbles: true, composed: true,
+        detail: { error: new Error(`[videl] sidx: invalid indexRange "${rangeAttr}"`) }
+      }));
+      return;
+    }
+
+    let buffer: ArrayBuffer;
+    try {
+      const resp = await fetch(url, {
+        headers: { Range: `bytes=${rangeStart}-${rangeEnd}` },
+        signal: this.#initController?.signal,
+      });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status} fetching sidx at ${url} range ${rangeAttr}`);
+      }
+      buffer = await resp.arrayBuffer();
+    } catch (err: unknown) {
+      if (this.getAttribute('videl-state') === null) {
+        return;
+      } // Aborted on deactivation — not an error.
+      this.dispatchEvent(new CustomEvent('videl:segment:error', {
+        bubbles: true, composed: true,
+        detail: { error: err instanceof Error ? err : new Error(String(err)) }
+      }));
+      return;
+    }
+
+    const sidxEndByte = rangeEnd + 1;
+    const entries     = parseSidx(buffer, sidxEndByte);
+
+    if (entries.length === 0) {
+      this.dispatchEvent(new CustomEvent('videl:segment:error', {
+        bubbles: true, composed: true,
+        detail: { error: new Error(`[videl] sidx: parsed 0 entries from ${url} range ${rangeAttr}`) }
+      }));
+      return;
+    }
+
+    for (const entry of entries) {
+      const seg = document.createElement('videl-segment') as VidelSegment;
+      seg.setAttribute('url',        url);
+      seg.setAttribute('byte-range', entry.byteRange);
+      seg.setAttribute('start-time', String(entry.startTime));
+      seg.setAttribute('duration',   String(entry.duration));
+      this.appendChild(seg);
+    }
+
+    trace(this, 'fetch', 'sidx-parsed', {
+      url,
+      entryCount:       entries.length,
+      firstStartTime:   entries[0]!.startTime,
+      totalDuration:    entries.reduce((s, e) => s + e.duration, 0),
+    });
+  }
+
+  /**
+   * Extend the segment list for live (type="dynamic") SegmentTemplate streams.
+   *
+   * Called on every videlUpdate() tick.  For VOD representations this is a
+   * no-op.  For live, computes which segment numbers are available based on
+   * wall clock time and appends any that are not yet in the child list.
+   *
+   * Segment availability:
+   *   currentSegNum  = floor((nowSec - availabilityStartTime) / segDurSec) - 1
+   *   (−1 margin: the encoder may not have finished the very latest segment)
+   *
+   * Bootstrap (no segments yet): generate the full DVR window worth of
+   * segments so the pump can seek within the available range.
+   *
+   * Extend (segments already exist): append only newly published segments
+   * beyond the last known one, derived from the last segment's start-time.
+   */
+  #extendLiveSegments(): void {
+    if (!this.live) {
+      return;
+    }
+    const availStr = this.getAttribute('availability-start-time');
+    if (!availStr) {
+      return;
+    }
+    const media = this.segmentTemplateMedia;
+    if (!media) {
+      return;
+    }
+    const segDuration = this.segmentTemplateDuration;
+    if (!segDuration) {
+      return; // SegmentTimeline live — deferred
+    }
+
+    const availabilityStartTime = Number(availStr);
+    const timescale  = this.segmentTemplateTimescale  ?? 1;
+    const startNum   = this.segmentTemplateStartNumber ?? 1;
+    const segDurSec  = segDuration / timescale;
+    const nowSec     = Date.now() / 1000;
+
+    // Latest segment number available (with one-segment safety margin for encoder lag).
+    const latestSegNum = Math.floor((nowSec - availabilityStartTime) / segDurSec) - 1;
+
+    const periodEl    = this.closest('videl-period');
+    const periodStart = Number(periodEl?.getAttribute('start') ?? 0);
+    const segs        = this.#childSegments;
+
+    let fromSegNum: number;
+
+    if (segs.length === 0) {
+      // Bootstrap: start from the DVR window boundary (or startNumber if newer).
+      const tsbd = this.timeShiftBufferDepth > 0 ? this.timeShiftBufferDepth : 30;
+      const dvrStartSec = nowSec - tsbd;
+      fromSegNum = Math.max(
+        startNum,
+        Math.floor((dvrStartSec - availabilityStartTime) / segDurSec)
+      );
+    } else {
+      // Extend: derive the last segment number from its start-time attribute,
+      // then append any newly published segments after it.
+      const lastSeg        = segs[segs.length - 1]!;
+      const lastRelSec     = lastSeg.startTime - periodStart;
+      const lastSegNum     = startNum + Math.round(lastRelSec / segDurSec);
+      fromSegNum = lastSegNum + 1;
+    }
+
+    if (fromSegNum > latestSegNum) {
+      return; // Nothing new yet.
+    }
+
+    for (let n = fromSegNum; n <= latestSegNum; n++) {
+      const i     = n - startNum;
+      const url   = expandTemplate(media, { number: n });
+      const sTime = periodStart + i * segDurSec;
+      this.#appendSegmentEl(url, sTime, segDurSec);
+    }
+
+    trace(this, 'fetch', 'live-segments-extended', {
+      from:   fromSegNum,
+      to:     latestSegNum,
+      count:  latestSegNum - fromSegNum + 1,
+    });
+  }
+
+  /** Create and append a `<videl-segment>` child with the given properties. */
+  #appendSegmentEl(url: string, startTime: number, duration: number): void {
+    const seg = document.createElement('videl-segment') as VidelSegment;
+    seg.setAttribute('url',        url);
+    seg.setAttribute('start-time', String(startTime));
+    seg.setAttribute('duration',   String(duration));
+    this.appendChild(seg);
+  }
 
   #startInit(): void {
     if (this.#initAppended) {

@@ -9,3 +9,6 @@ export { iterBoxes, findBox, readUint32BE, readUint64BE, readFourcc } from './bo
 
 export type { TextSample, TextContainerCodec } from './text-demuxer';
 export { Fmp4TextDemuxer } from './text-demuxer';
+
+export type { SidxEntry } from './sidx-parser';
+export { parseSidx } from './sidx-parser';

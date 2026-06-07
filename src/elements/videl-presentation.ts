@@ -70,10 +70,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     slot: { type: String,  reflect: true },
     debug: { type: Boolean },
     // Pump-driven playback state (not reflected to attributes — internal only).
-    currentTime: { type: Number,  attribute: false },
-    paused: { type: Boolean, attribute: false },
-    volume: { type: Number,  attribute: false },
-    muted: { type: Boolean, attribute: false },
+    currentTime:   { type: Number,  attribute: false },
+    paused:        { type: Boolean, attribute: false },
+    volume:        { type: Number,  attribute: false },
+    muted:         { type: Boolean, attribute: false },
+    seekableStart: { type: Number,  attribute: false },
+    seekableEnd:   { type: Number,  attribute: false },
     // Which informational menu the control bar has open (drives the active period).
     menuOpen: { type: String,  attribute: false },
     // Mirrors document.fullscreenElement so the icon toggles reactively.
@@ -91,10 +93,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   debug                      = false;
 
   // Pump-driven UI state (stamped by videlUpdate on every tick).
-  currentTime = 0;
-  paused      = true;
-  volume      = 1;
-  muted       = false;
+  currentTime   = 0;
+  paused        = true;
+  volume        = 1;
+  muted         = false;
+  seekableStart = 0;
+  seekableEnd   = 0;
 
   /** Which informational menu is open: `'audio' | 'text' | 'quality' | null`. */
   menuOpen: string | null = null;
@@ -166,10 +170,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // fields shadow Lit's reactive accessors, so assignment alone does not
     // schedule a render. Explicitly request an update so the seekbar / time
     // display track playback on every pump tick.
-    this.currentTime = state.currentTime;
-    this.paused      = state.paused;
-    this.volume      = state.volume;
-    this.muted       = state.muted;
+    this.currentTime   = state.currentTime;
+    this.paused        = state.paused;
+    this.volume        = state.volume;
+    this.muted         = state.muted;
+    this.seekableStart = state.seekableStart;
+    this.seekableEnd   = state.seekableEnd;
     (this as unknown as LitElement).requestUpdate();
 
     const active = this.#childPeriods.find(p => p.getAttribute('videl-state') === 'active');
@@ -323,12 +329,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   };
 
   #onSeekInput = (e: Event): void => {
-    const frac = Number((e.target as HTMLInputElement).value);
-    const dur  = this.mediaPresentationDuration ?? this.duration ?? 0;
-    if (dur > 0) {
+    const frac  = Number((e.target as HTMLInputElement).value);
+    // Use the live seekable range when available; fall back to the manifest
+    // duration for VOD streams that have not yet received a pump tick.
+    const start = this.seekableStart;
+    const end   = this.seekableEnd > 0
+      ? this.seekableEnd
+      : (this.mediaPresentationDuration ?? this.duration ?? 0);
+    const span  = end - start;
+    if (span > 0) {
       this.dispatchEvent(new CustomEvent('videl:ui:seek', {
         bubbles: true, composed: true,
-        detail: { time: frac * dur }
+        detail: { time: start + frac * span }
       }));
     }
   };
@@ -437,8 +449,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    const totalDur = this.mediaPresentationDuration ?? this.duration ?? 0;
-    const progress = totalDur > 0 ? this.currentTime / totalDur : 0;
+    // Prefer the live seekable range (updated every pump tick via video.seekable).
+    // Fall back to the static manifest duration for VOD streams on the first
+    // render before the first pump tick has arrived.
+    const seekStart = this.seekableStart;
+    const seekEnd   = this.seekableEnd > 0
+      ? this.seekableEnd
+      : (this.mediaPresentationDuration ?? this.duration ?? 0);
+    const seekSpan  = seekEnd - seekStart;
+    const progress  = seekSpan > 0 ? (this.currentTime - seekStart) / seekSpan : 0;
+    const isLive    = this.presentationType === 'dynamic';
+    // For display: VOD shows total duration; live shows the seekable span (DVR depth).
+    const displayDur = isLive ? seekSpan : seekEnd;
 
     return html`
       <style>
@@ -737,7 +759,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           </button>
 
           <span class="time-display">
-            ${this.#formatTime(this.currentTime)} / ${this.#formatTime(totalDur)}
+            ${this.#formatTime(this.currentTime - seekStart)} / ${this.#formatTime(displayDur)}
           </span>
 
           <span class="spacer"></span>
@@ -792,7 +814,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           <strong>videl-presentation</strong>
           type=<em>${this.presentationType}</em>
           state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          dur=<em>${this.mediaPresentationDuration ?? this.duration ?? '?'}</em>s
+          dur=<em>${seekEnd > 0 ? seekEnd.toFixed(1) : (this.mediaPresentationDuration ?? this.duration ?? '?')}</em>s
           populated=<em>${this.#populated}</em>
           t=<em>${this.currentTime.toFixed(1)}</em>s
           ${this.paused ? ICON_PAUSE : ICON_PLAY}

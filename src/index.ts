@@ -23,6 +23,8 @@ export { Fmp4TextDemuxer } from './lib/mp4';
 export type { TextSample, TextContainerCodec } from './lib/mp4';
 export type { BoxInfo } from './lib/mp4';
 export { iterBoxes, findBox, readUint32BE, readUint64BE, readFourcc } from './lib/mp4';
+export type { SidxEntry } from './lib/mp4';
+export { parseSidx } from './lib/mp4';
 
 // ── lib/vtt ──────────────────────────────────────────────────────────────────
 export type { WvttCueData } from './lib/vtt';

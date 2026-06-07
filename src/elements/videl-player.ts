@@ -597,6 +597,17 @@ export class VidelPlayer extends HTMLElement {
 
     trace(this, 'mse', 'source-open', {});
 
+    // For live (type="dynamic") streams, duration must be Infinity so MSE
+    // does not try to bound the seekable range by a fixed endpoint.
+    // setLiveSeekableRange is called on each pump tick to maintain the
+    // sliding DVR window.
+    const isLive = presEl.getAttribute('type') === 'dynamic';
+    if (isLive) {
+      try {
+        ms.duration = Infinity;
+      } catch { /* ignore — some browsers reject this if readyState != 'open' */ }
+    }
+
     const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')] as VidelAdaptationSet[];
 
     for (const ads of adsSets) {
@@ -750,6 +761,10 @@ export class VidelPlayer extends HTMLElement {
       sourceBuffered.set(ct, msb.buffered);
     }
 
+    const seekable     = this.#video.seekable;
+    const seekableStart = seekable.length > 0 ? seekable.start(0)                    : 0;
+    const seekableEnd   = seekable.length > 0 ? seekable.end(seekable.length - 1)    : 0;
+
     const state: PlayerState = {
       currentTime: this.#video.currentTime,
       buffered: this.#video.buffered,
@@ -759,12 +774,62 @@ export class VidelPlayer extends HTMLElement {
       sourceBuffered,
       paused: this.#video.paused,
       volume: this.#video.volume,
-      muted: this.#video.muted
+      muted: this.#video.muted,
+      seekableStart,
+      seekableEnd,
     };
     if (this.#activePresentation instanceof VidelPresentation) {
       this.#activePresentation.videlUpdate(state);
     }
+    this.#updateLiveSeekableRange();
     this.#maybeEndOfStream();
+  }
+
+  /**
+   * For live (type="dynamic") streams, maintain the MSE seekable window by
+   * calling `setLiveSeekableRange` on every pump tick.
+   *
+   * The seekable range is `[liveEdge − TSBD, liveEdge]` where:
+   *
+   *   liveEdge = (Date.now()/1000 − availabilityStartTime) + timestampOffset
+   *
+   * At activation time this equals TSBD (the DVR depth).  It grows at 1:1
+   * wall-clock rate as the live edge advances.  The window start tracks it
+   * at distance TSBD, giving the browser a stable DVR region to expose.
+   *
+   * Reads `availability-start-time`, `timestamp-offset`, and
+   * `time-shift-buffer-depth` directly from the first active live
+   * representation — all three are stamped by the parser and/or by
+   * VidelRepresentation at activation time.
+   */
+  #updateLiveSeekableRange(): void {
+    const ms = this.#mediaSource;
+    if (!ms || ms.readyState !== 'open') {
+      return;
+    }
+
+    // Find any active live representation (video or audio — they share the
+    // same live metadata so either works).
+    const activeRep = this.#activePresentation
+      ?.querySelector('videl-representation[live]');
+    if (!activeRep) {
+      return;
+    }
+
+    const availStart = Number(activeRep.getAttribute('availability-start-time') ?? '0');
+    const tsOffset   = Number(activeRep.getAttribute('timestamp-offset')        ?? '0');
+    const tsbd       = Number(activeRep.getAttribute('time-shift-buffer-depth') ?? '0');
+    if (tsbd <= 0) {
+      return;
+    }
+
+    const nowSec   = Date.now() / 1000;
+    const liveEdge = (nowSec - availStart) + tsOffset;
+    const start    = liveEdge - tsbd;
+
+    try {
+      ms.setLiveSeekableRange(Math.max(0, start), liveEdge);
+    } catch { /* ignore — setLiveSeekableRange may throw if duration != Infinity */ }
   }
 
   /**

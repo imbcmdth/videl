@@ -34,4 +34,18 @@ export interface PlayerState {
   volume: number;
   /** Whether the video element is muted. Used by presentation controls. */
   muted: boolean;
+  /**
+   * Start of the seekable range in seconds (`video.seekable.start(0)`).
+   * For VOD this is 0. For live it advances as the DVR window slides forward.
+   * Used by the presentation seekbar to calculate progress and dispatch seeks.
+   */
+  seekableStart: number;
+  /**
+   * End of the seekable range in seconds (`video.seekable.end(last)`).
+   * For VOD this equals `mediaPresentationDuration`. For live it equals the
+   * current live edge time (grows at real-time rate after activation).
+   * Used by the presentation seekbar instead of `mediaPresentationDuration`
+   * so that both VOD and live use the same code path.
+   */
+  seekableEnd: number;
 }

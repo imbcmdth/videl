@@ -134,22 +134,53 @@ test('criterion 4 — videl-representation has bandwidth, dimensions, and resolv
 });
 
 // ---------------------------------------------------------------------------
-// Criterion 5 — SegmentTemplate + $Number$: startNumber, segment URL expansion
-// (multiperiod-segment-template.mpd: startNumber=0, duration=50, timescale=10 → 5 s segs, PT15S period → 3 segs)
+// Criterion 5 — SegmentTemplate + $Number$: parser stamps segment-template-*
+// attributes; no <videl-segment> children are created at parse time.
+// (multiperiod-segment-template.mpd: startNumber=0, duration=50, timescale=10)
 // ---------------------------------------------------------------------------
-test('criterion 5 — SegmentTemplate $Number$ produces correct URLs and startNumber', async ({ page }) => {
+test('criterion 5 — SegmentTemplate stamps segment-template-* attrs, no segments at parse time', async ({ page }) => {
   const xml = fixtureXml('multiperiod-segment-template.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
-    const pres  = parseMpd(xml, 'https://example.com/');
-    const segs  = [...pres.querySelector('videl-period videl-adaptation-set videl-representation')!
-                          .querySelectorAll('videl-segment')];
+    const pres = parseMpd(xml, 'https://example.com/');
+    const rep  = pres.querySelector('videl-period videl-adaptation-set videl-representation')!;
+    return {
+      segCount:     rep.querySelectorAll('videl-segment').length,
+      media:        rep.getAttribute('segment-template-media'),
+      timescale:    rep.getAttribute('segment-template-timescale'),
+      startNumber:  rep.getAttribute('segment-template-start-number'),
+      duration:     rep.getAttribute('segment-template-duration'),
+    };
+  }, xml);
+
+  // No segments created at parse time
+  expect(result.segCount).toBe(0);
+  // Template attributes stamped — media pre-resolved against base URL
+  expect(result.media).toContain('www.example.com/base');
+  expect(result.media).toContain('segment_$Number$');
+  expect(result.timescale).toBe('10');
+  expect(result.startNumber).toBe('0');
+  expect(result.duration).toBe('50');
+});
+
+// ---------------------------------------------------------------------------
+// Criterion 5 (activation) — SegmentTemplate segments created on activation
+// ---------------------------------------------------------------------------
+test('criterion 5 (activation) — SegmentTemplate segments populated after videl-state="next"', async ({ page }) => {
+  const xml = fixtureXml('multiperiod-segment-template.mpd');
+  const result = await page.evaluate(async (xml: string) => {
+    const { parseMpd, VidelRepresentation } = await import('/dist/index.js');
+    const pres = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
+    const rep = pres.querySelector('videl-period videl-adaptation-set videl-representation')!;
+    // Activate — no sourceBuffer needed for segment population
+    rep.setAttribute('videl-state', 'next');
+    const segs = [...rep.querySelectorAll('videl-segment')];
     return segs.map(s => s.getAttribute('url'));
   }, xml);
 
   // startNumber=0, duration=50 ticks, timescale=10 → 5 s/seg → 3 segs for 15 s period
   expect(result).toHaveLength(3);
-  // Segment 0 starts at number 0; BaseURL=https://www.example.com/base
   expect(result[0]).toContain('segment_0');
   expect(result[1]).toContain('segment_1');
   expect(result[2]).toContain('segment_2');
@@ -157,6 +188,7 @@ test('criterion 5 — SegmentTemplate $Number$ produces correct URLs and startNu
 
 // ---------------------------------------------------------------------------
 // Criterion 5 + criterion 17 — timescale: start-time and duration in seconds
+// Segments are now created at activation time, so we activate first.
 // (video: timescale=10, duration=50 → 5.0 s; audio: timescale=48000, duration=240000 → 5.0 s)
 // ---------------------------------------------------------------------------
 test('criterion 17 — non-1 timescale produces correct start-time and duration in seconds', async ({ page }) => {
@@ -164,8 +196,13 @@ test('criterion 17 — non-1 timescale produces correct start-time and duration 
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres   = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
     const period = pres.querySelector('videl-period')!;
     const reps   = [...period.querySelectorAll('videl-representation')];
+
+    // Activate both representations to trigger segment population
+    reps[0].setAttribute('videl-state', 'next');
+    reps[1].setAttribute('videl-state', 'next');
 
     const videoSegs = [...reps[0].querySelectorAll('videl-segment')];
     const audioSegs = [...reps[1].querySelectorAll('videl-segment')];
@@ -195,7 +232,8 @@ test('criterion 17 — non-1 timescale produces correct start-time and duration 
 });
 
 // ---------------------------------------------------------------------------
-// Criterion 7 — SegmentTimeline: r attribute (including r="-1"), start-time in seconds
+// Criterion 7 — SegmentTimeline: r attribute, start-time in seconds
+// Segments are created at activation time.
 // (multiperiod.mpd: period 0 video timescale=30000, d=60060 r=1 + d=59059)
 // ---------------------------------------------------------------------------
 test('criterion 7 — SegmentTimeline with r repeat produces correct segment count and times', async ({ page }) => {
@@ -203,11 +241,13 @@ test('criterion 7 — SegmentTimeline with r repeat produces correct segment cou
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres   = parseMpd(xml, 'https://example.com/');
-    // Period 0, video adaptation set (second child — index 1), first representation
+    document.body.appendChild(pres);
+    // Period 0, video adaptation set, first representation
     const period  = pres.children[0];
     const videoAds = [...period.querySelectorAll('videl-adaptation-set')]
       .find(a => a.getAttribute('content-type') === 'video')!;
     const rep     = videoAds.querySelector('videl-representation')!;
+    rep.setAttribute('videl-state', 'next');
     const segs    = [...rep.querySelectorAll('videl-segment')];
     return segs.map(s => ({
       url:       s.getAttribute('url'),
@@ -226,7 +266,8 @@ test('criterion 7 — SegmentTimeline with r repeat produces correct segment cou
 });
 
 // ---------------------------------------------------------------------------
-// Criterion 7 (r="-1") — repeat to end of period
+// Criterion 7 (r="-1") — repeat to end of period fills all segments
+// Segments created at activation time.
 // (segment-template-time.mpd: d=270000, timescale=90000, periodDuration=30 → 10 segs)
 // ---------------------------------------------------------------------------
 test('criterion 7 (r="-1") — repeat to end of period fills all segments', async ({ page }) => {
@@ -234,10 +275,12 @@ test('criterion 7 (r="-1") — repeat to end of period fills all segments', asyn
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres  = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
     const period = pres.children[0];
     const videoAds = [...period.querySelectorAll('videl-adaptation-set')]
       .find(a => a.getAttribute('content-type') === 'video')!;
     const rep   = videoAds.querySelector('videl-representation')!;
+    rep.setAttribute('videl-state', 'next');
     const segs  = [...rep.querySelectorAll('videl-segment')];
     return {
       count:     segs.length,
@@ -253,6 +296,7 @@ test('criterion 7 (r="-1") — repeat to end of period fills all segments', asyn
 
 // ---------------------------------------------------------------------------
 // Criterion 6 — $Time$ variable in media URL
+// Segments created at activation time.
 // (segment-template-time.mpd: uses $Time$ in video media template)
 // ---------------------------------------------------------------------------
 test('criterion 6 — $Time$ template variable uses timescale-unit t value in URL', async ({ page }) => {
@@ -260,10 +304,12 @@ test('criterion 6 — $Time$ template variable uses timescale-unit t value in UR
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres  = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
     const period = pres.children[0];
     const videoAds = [...period.querySelectorAll('videl-adaptation-set')]
       .find(a => a.getAttribute('content-type') === 'video')!;
     const rep   = videoAds.querySelector('videl-representation')!;
+    rep.setAttribute('videl-state', 'next');
     const segs  = [...rep.querySelectorAll('videl-segment')];
     return segs.slice(0, 3).map(s => s.getAttribute('url'));
   }, xml);
@@ -275,29 +321,30 @@ test('criterion 6 — $Time$ template variable uses timescale-unit t value in UR
 });
 
 // ---------------------------------------------------------------------------
-// Criterion 8 — SegmentBase: single segment with byte-range + initialization-url
+// Criterion 8 — SegmentBase: parser stamps segment-base-* attrs + init URL.
+// No <videl-segment> children at parse time — sidx fetch happens at activation.
 // ---------------------------------------------------------------------------
-test('criterion 8 — SegmentBase produces single segment with initialization-url and byte-range', async ({ page }) => {
+test('criterion 8 — SegmentBase stamps segment-base-url/index-range and initialization-url, no segments at parse time', async ({ page }) => {
   const xml = fixtureXml('segment-base.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres = parseMpd(xml, 'https://example.com/');
     const rep  = pres.querySelector('videl-representation')!;
-    const segs = [...rep.querySelectorAll('videl-segment')];
     return {
-      initUrl:   rep.getAttribute('initialization-url'),
-      initRange: rep.getAttribute('initialization-byte-range'),
-      segCount:  segs.length,
-      segUrl:    segs[0]?.getAttribute('url'),
-      byteRange: segs[0]?.getAttribute('byte-range'),
+      initUrl:        rep.getAttribute('initialization-url'),
+      initRange:      rep.getAttribute('initialization-byte-range'),
+      segCount:       rep.querySelectorAll('videl-segment').length,
+      segBaseUrl:     rep.getAttribute('segment-base-url'),
+      segIndexRange:  rep.getAttribute('segment-base-index-range'),
     };
   }, xml);
 
-  expect(result.segCount).toBe(1);
+  // No segments at parse time — sidx fetch deferred to activation
+  expect(result.segCount).toBe(0);
   expect(result.initUrl).toBe('https://cdn.example.com/video.mp4');
   expect(result.initRange).toBe('708-1000');
-  expect(result.segUrl).toBe('https://cdn.example.com/video.mp4');
-  expect(result.byteRange).toBe('0-707');
+  expect(result.segBaseUrl).toBe('https://cdn.example.com/video.mp4');
+  expect(result.segIndexRange).toBe('0-707');
 });
 
 // ---------------------------------------------------------------------------
@@ -347,19 +394,20 @@ test('criterion 10 — relative segment URLs are resolved against the baseUrl', 
 
 // ---------------------------------------------------------------------------
 // Criterion 11 — BaseURL at multiple levels
+// The base URL is now embedded in the segment-template-media attribute.
 // ---------------------------------------------------------------------------
-test('criterion 11 — BaseURL elements are respected and prepended correctly', async ({ page }) => {
+test('criterion 11 — BaseURL elements are respected and embedded in segment-template-media', async ({ page }) => {
   const xml = fixtureXml('multiperiod-segment-template.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres = parseMpd(xml, 'https://fallback.example.com/');
-    const seg  = pres.querySelector('videl-segment')!;
-    return seg.getAttribute('url');
+    const rep  = pres.querySelector('videl-representation')!;
+    return rep.getAttribute('segment-template-media');
   }, xml);
 
-  // BaseURL is https://www.example.com/base; media is video/segment_$Number$.m4f
+  // BaseURL is https://www.example.com/base; $Number$ token remains unexpanded
   expect(result).toContain('www.example.com/base');
-  expect(result).toContain('segment_0');
+  expect(result).toContain('$Number$');
 });
 
 // ---------------------------------------------------------------------------
@@ -420,9 +468,11 @@ test('criterion 14 — multi-period MPD produces videl-period children in manife
 
 // ---------------------------------------------------------------------------
 // Criterion 15 — $RepresentationID$ and $Bandwidth$ template expansion
+// $RepresentationID$ and $Bandwidth$ are pre-expanded at parse time;
+// $Number$/$Time$ are left for activation-time expansion.
 // (multiperiod.mpd: initialization="https://example.com/$RepresentationID$/init0.m4f")
 // ---------------------------------------------------------------------------
-test('criterion 15 — $RepresentationID$ and $Bandwidth$ expanded in init and media URLs', async ({ page }) => {
+test('criterion 15 — $RepresentationID$ and $Bandwidth$ expanded in init URL and segment-template-media', async ({ page }) => {
   const xml = fixtureXml('multiperiod.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
@@ -432,21 +482,23 @@ test('criterion 15 — $RepresentationID$ and $Bandwidth$ expanded in init and m
       .find(a => a.getAttribute('content-type') === 'video')!;
     const rep     = videoAds.querySelector('videl-representation')!;
     return {
-      id:      rep.getAttribute('id'),
-      initUrl: rep.getAttribute('initialization-url'),
-      segUrl:  rep.querySelector('videl-segment')?.getAttribute('url'),
+      id:                   rep.getAttribute('id'),
+      initUrl:              rep.getAttribute('initialization-url'),
+      segmentTemplateMedia: rep.getAttribute('segment-template-media'),
     };
   }, xml);
 
   const repId = result.id;
-  // Init URL should contain the representation ID
+  // Init URL must have $RepresentationID$ expanded
   expect(result.initUrl).toContain(repId!);
-  // Segment URL should contain the representation ID
-  expect(result.segUrl).toContain(repId!);
+  // segment-template-media must have $RepresentationID$ expanded but $Number$ preserved
+  expect(result.segmentTemplateMedia).toContain(repId!);
+  expect(result.segmentTemplateMedia).not.toContain('$RepresentationID$');
 });
 
 // ---------------------------------------------------------------------------
 // Criterion 15 — zero-padded $Number%05d$
+// Segments created at activation time.
 // (segment-template-time.mpd audio: media uses $Number%05d$, startNumber=1)
 // ---------------------------------------------------------------------------
 test('criterion 15 — zero-padded $Number%05d$ expands correctly', async ({ page }) => {
@@ -454,10 +506,12 @@ test('criterion 15 — zero-padded $Number%05d$ expands correctly', async ({ pag
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres   = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
     const period  = pres.children[0];
     const audioAds = [...period.querySelectorAll('videl-adaptation-set')]
       .find(a => a.getAttribute('content-type') === 'audio')!;
     const rep    = audioAds.querySelector('videl-representation')!;
+    rep.setAttribute('videl-state', 'next');
     const segs   = [...rep.querySelectorAll('videl-segment')];
     return segs.slice(0, 2).map(s => s.getAttribute('url'));
   }, xml);
@@ -501,11 +555,13 @@ test('criterion 18 — presentationTimeOffset subtracted, then offset by absolut
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres    = parseMpd(xml, 'https://example.com/');
+    document.body.appendChild(pres);
     // Period id="3" (index 3) has presentationTimeOffset=214016, timescale=44100
     const period3 = pres.children[3];
     const audioAds = [...period3.querySelectorAll('videl-adaptation-set')]
       .find(a => a.getAttribute('content-type') === 'audio')!;
     const rep    = audioAds.querySelector('videl-representation')!;
+    rep.setAttribute('videl-state', 'next');
     const seg0   = rep.querySelector('videl-segment')!;
     return {
       startTime:   Number(seg0.getAttribute('start-time')),
@@ -542,6 +598,7 @@ test('content-type is inferred from Representation mimeType when AdaptationSet l
   const types = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres = parseMpd(xml, 'https://example.com/');
+    // content-type inference is a parse-time operation — no activation needed
     return [...pres.querySelectorAll('videl-adaptation-set')]
       .map(a => a.getAttribute('content-type'));
   }, xml);
@@ -573,7 +630,7 @@ test('periods without @start get cumulative start times', async ({ page }) => {
 // SegmentBase/List/Template) becomes a single self-initializing whole-file
 // segment (no separate init URL).
 // ---------------------------------------------------------------------------
-test('on-demand BaseURL-only Representation yields one self-initializing segment', async ({ page }) => {
+test('on-demand BaseURL-only Representation stamps segment-base-url, yields segment on activation', async ({ page }) => {
   const xml = `<?xml version="1.0"?>
     <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"
          mediaPresentationDuration="PT600S"
@@ -589,19 +646,33 @@ test('on-demand BaseURL-only Representation yields one self-initializing segment
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres = parseMpd(xml, 'https://media.example.com/dir/manifest.mpd');
+    document.body.appendChild(pres);
     const rep  = pres.querySelector('videl-representation')!;
+
+    // At parse time: no segments, but segment-base-url is stamped
+    const parsedSegCount  = rep.querySelectorAll('videl-segment').length;
+    const segBaseUrl      = rep.getAttribute('segment-base-url');
+    const hasInitUrl      = rep.hasAttribute('initialization-url');
+
+    // After activation: one self-initializing segment created
+    rep.setAttribute('videl-state', 'next');
     const segs = [...rep.querySelectorAll('videl-segment')];
+
     return {
-      hasInitUrl:   rep.hasAttribute('initialization-url'),
-      segCount:     segs.length,
-      segUrl:       segs[0]?.getAttribute('url') ?? null,
-      segStart:     segs[0]?.getAttribute('start-time') ?? null,
-      segDuration:  segs[0]?.getAttribute('duration') ?? null,
+      parsedSegCount,
+      segBaseUrl,
+      hasInitUrl,
+      segCount:    segs.length,
+      segUrl:      segs[0]?.getAttribute('url') ?? null,
+      segStart:    segs[0]?.getAttribute('start-time') ?? null,
+      segDuration: segs[0]?.getAttribute('duration') ?? null,
     };
   }, xml);
 
-  expect(result.segCount).toBe(1);
+  expect(result.parsedSegCount).toBe(0);
+  expect(result.segBaseUrl).toBe('https://media.example.com/dir/DASH_vodvideo_Track1.m4v');
   expect(result.hasInitUrl).toBe(false); // self-initializing
+  expect(result.segCount).toBe(1);
   expect(result.segUrl).toBe('https://media.example.com/dir/DASH_vodvideo_Track1.m4v');
   expect(result.segStart).toBe('0');
   expect(result.segDuration).toBe('600');

@@ -11,6 +11,8 @@
  *   class ParseError extends Error
  */
 
+import { expandTemplate, resolveUrl } from './template-utils';
+
 // ---------------------------------------------------------------------------
 // Public error type
 // ---------------------------------------------------------------------------
@@ -82,16 +84,44 @@ function buildPresentation(mpd: Element, baseUrl: string): HTMLElement {
   const mpdBase = resolveBaseUrl(mpd, baseUrl);
   const mpdDur  = dur ? parseDuration(dur) : undefined;
 
+  // Live / dynamic stream metadata passed down to representations so they can
+  // compute segment availability from wall clock time.
+  const isDynamic = type === 'dynamic';
+  const liveCtx: LiveContext | undefined = isDynamic ? {
+    availabilityStartTime: parseIsoDateTime(mpd.getAttribute('availabilityStartTime') ?? ''),
+    timeShiftBufferDepth:  parseDuration(mpd.getAttribute('timeShiftBufferDepth') ?? 'PT0S'),
+  } : undefined;
+
   // Track the running presentation-time cursor so periods without an explicit
   // @start inherit the cumulative offset of all preceding periods.
   let runningStart = 0;
   for (const period of children(mpd, 'Period')) {
-    const { el: periodEl, nextStart } = buildPeriod(period, mpdBase, mpdDur, runningStart);
+    const { el: periodEl, nextStart } = buildPeriod(period, mpdBase, mpdDur, runningStart, liveCtx);
     el.appendChild(periodEl);
     runningStart = nextStart;
   }
 
   return el;
+}
+
+/** Metadata from MPD-level live attributes, propagated to each representation. */
+interface LiveContext {
+  /** Unix epoch seconds from MPD@availabilityStartTime. */
+  availabilityStartTime: number;
+  /** Seconds from MPD@timeShiftBufferDepth (0 if absent). */
+  timeShiftBufferDepth:  number;
+}
+
+/**
+ * Parse an ISO 8601 datetime string to Unix epoch seconds.
+ * Returns 0 for invalid or missing strings.
+ */
+function parseIsoDateTime(s: string): number {
+  if (!s) {
+    return 0;
+  }
+  const ms = Date.parse(s);
+  return isNaN(ms) ? 0 : ms / 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +132,8 @@ function buildPeriod(
   period: Element,
   parentBase: string,
   mpdDuration: number | undefined,
-  precedingStart: number
+  precedingStart: number,
+  liveCtx?: LiveContext
 ): { el: HTMLElement; nextStart: number } {
   const el = document.createElement('videl-period');
 
@@ -134,7 +165,7 @@ function buildPeriod(
   for (const ads of children(period, 'AdaptationSet')) {
     el.appendChild(buildAdaptationSet(ads, {
       base, parentST: periodST, parentSL: periodSL ?? undefined,
-      periodStart: start, periodDuration
+      periodStart: start, periodDuration, liveCtx
     }));
   }
 
@@ -162,6 +193,7 @@ function buildAdaptationSet(
     parentSL?:       Element;   // inherited SegmentList
     periodStart:     number;
     periodDuration?: number;
+    liveCtx?:        LiveContext;
   }
 ): HTMLElement {
   const el = document.createElement('videl-adaptation-set');
@@ -208,7 +240,8 @@ function buildAdaptationSet(
       periodStart: ctx.periodStart,
       periodDuration: ctx.periodDuration,
       parentMimeType: mimeType,
-      parentCodecs: codecs
+      parentCodecs: codecs,
+      liveCtx: ctx.liveCtx,
     }));
 
   // For video adaptation sets, sort representations by increasing bandwidth
@@ -261,6 +294,7 @@ function buildRepresentation(
     periodDuration?: number;
     parentMimeType:  string;
     parentCodecs:    string;
+    liveCtx?:        LiveContext;
   }
 ): HTMLElement {
   const el = document.createElement('videl-representation');
@@ -295,7 +329,7 @@ function buildRepresentation(
   buildSegments(rep, el, {
     base, st, parentSL: ctx.parentSL,
     periodStart: ctx.periodStart, periodDuration: ctx.periodDuration,
-    id, bandwidth
+    id, bandwidth, liveCtx: ctx.liveCtx,
   });
 
   return el;
@@ -316,9 +350,10 @@ function buildSegments(
     periodDuration?: number;
     id:              string;
     bandwidth:       number;
+    liveCtx?:        LiveContext;
   }
 ): void {
-  const { base, st, parentSL, periodStart, periodDuration, id, bandwidth } = ctx;
+  const { base, st, parentSL, periodStart, periodDuration, id, bandwidth, liveCtx } = ctx;
 
   // Stamp timestamp-offset = periodStart - pto/timescale on the representation
   // element so videl-representation can set SourceBuffer.timestampOffset after
@@ -332,137 +367,62 @@ function buildSegments(
   }
 
   // Priority: SegmentBase > SegmentList > SegmentTemplate (inherited or local)
+
+  // ── SegmentBase ────────────────────────────────────────────────────────────
+  // Stamp addressing attributes for VidelRepresentation to process at activation
+  // time.  If indexRange is present the representation will fetch the sidx box
+  // and create one <videl-segment> per entry; otherwise a single whole-file
+  // segment is created.
   const sb = child(rep, 'SegmentBase');
   if (sb) {
-    buildSegmentBase(rep, repEl, base); return;
+    stampSegmentBase(rep, repEl, base);
+    return;
   }
 
-  // SegmentList: check Representation first, then inherited from AdaptationSet.
+  // ── SegmentList ────────────────────────────────────────────────────────────
+  // 1:1 XML-to-DOM transform — no computation required, stays in the parser.
   const sl = child(rep, 'SegmentList') ?? parentSL;
   if (sl) {
-    buildSegmentList(sl, repEl, base); return;
+    buildSegmentList(sl, repEl, base);
+    return;
   }
 
   if (!st?.media) {
-    // No SegmentBase / SegmentList / SegmentTemplate: this is the ISO on-demand
-    // profile where a Representation carries only a <BaseURL> pointing at a
-    // single self-contained file (moov + media). Treat the whole file as one
-    // self-initializing segment (no separate init URL).
+    // No SegmentBase / SegmentList / SegmentTemplate: ISO on-demand profile
+    // where a Representation carries only a <BaseURL> pointing at a single
+    // self-contained file (moov + media).  Stamp segment-base-url so
+    // VidelRepresentation creates one self-initializing segment at activation.
     if (child(rep, 'BaseURL')) {
       const fileUrl = resolveBaseUrl(rep, base);
-      appendSegment(repEl, fileUrl, periodStart, periodDuration ?? 0);
-    }
-    return;
-  }
-
-  // Stamp initialization-url on the representation element.
-  if (st.initialization) {
-    repEl.setAttribute(
-      'initialization-url',
-      resolveUrl(expandTemplate(st.initialization, { id, bandwidth }), base)
-    );
-  }
-
-  if (st.timeline) {
-    buildFromTimeline(repEl, st as SegTemplate, periodStart, periodDuration, { id, bandwidth }, base);
-  } else if (st.segDuration) {
-    buildFromNumber(repEl, st as SegTemplate, periodStart, periodDuration, { id, bandwidth }, base);
-  }
-}
-
-// SegmentTemplate + SegmentTimeline ($Number$ or $Time$)
-function buildFromTimeline(
-  repEl:   HTMLElement,
-  st:      SegTemplate,
-  periodStart: number,
-  periodDuration: number | undefined,
-  vars:    { id: string; bandwidth: number },
-  base:    string
-): void {
-  const { media, timescale, startNumber, pto, timeline } = st;
-  if (!media || !timeline) {
-    return;
-  }
-
-  let segNumber = startNumber;
-  let t = 0; // running time cursor in timescale units
-
-  for (const s of timeline) {
-    const sT = s.hasAttribute('t') ? Number(s.getAttribute('t')) : t;
-    const d  = Number(s.getAttribute('d') ?? 0);
-    if (d === 0) {
-      continue;
-    }
-    let r = Number(s.getAttribute('r') ?? 0);
-
-    t = sT;
-
-    // r="-1" means repeat to end of period
-    if (r === -1) {
+      repEl.setAttribute('segment-base-url', fileUrl);
+      // period-duration is needed by VidelRepresentation to set the segment
+      // duration attribute on the single whole-file segment.
       if (periodDuration !== undefined) {
-        // How many additional repetitions fit from t to period end?
-        const periodEndTicks = periodDuration * timescale + pto;
-        r = Math.max(0, Math.ceil((periodEndTicks - t) / d) - 1);
-      } else {
-        r = 0;
+        repEl.setAttribute('period-duration', String(periodDuration));
       }
     }
-
-    for (let i = 0; i <= r; i++) {
-      const url       = resolveUrl(expandTemplate(media, { ...vars, number: segNumber, time: t }), base);
-      // Absolute presentation time: period start + period-relative time. Keeps
-      // the pump's segment selection aligned with the continuous MSE buffer
-      // across multi-period streams.
-      const startTime = periodStart + (t - pto) / timescale;
-      const duration  = d / timescale;
-
-      appendSegment(repEl, url, startTime, duration);
-      t += d;
-      segNumber++;
-    }
+    return;
   }
+
+  // ── SegmentTemplate ────────────────────────────────────────────────────────
+  // Stamp raw template data.  VidelRepresentation expands $Number$/$Time$ and
+  // creates <videl-segment> children at activation time.
+  stampSegmentTemplate(repEl, st as SegTemplate, { id, bandwidth }, base, liveCtx);
 }
 
-// SegmentTemplate with @duration and $Number$ (no SegmentTimeline)
-function buildFromNumber(
-  repEl:   HTMLElement,
-  st:      SegTemplate,
-  periodStart: number,
-  periodDuration: number | undefined,
-  vars:    { id: string; bandwidth: number },
-  base:    string
-): void {
-  const { media, timescale, startNumber, segDuration } = st;
-  if (!media || !segDuration) {
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Attribute-stamping helpers (no segment element creation)
+// ---------------------------------------------------------------------------
 
-  const segDurSec = segDuration / timescale;
-  if (periodDuration === undefined || segDurSec <= 0) {
-    return;
-  }
-
-  const count = Math.ceil(periodDuration / segDurSec);
-
-  for (let i = 0; i < count; i++) {
-    const segNumber = startNumber + i;
-    const url       = resolveUrl(expandTemplate(media, { ...vars, number: segNumber }), base);
-    // Absolute presentation time so multi-period segments don't collide at 0.
-    const startTime = periodStart + i * segDurSec;
-
-    appendSegment(repEl, url, startTime, segDurSec);
-  }
-}
-
-// SegmentBase → single segment + init
-function buildSegmentBase(rep: Element, repEl: HTMLElement, base: string): void {
-  const sb  = child(rep, 'SegmentBase');
-  if (!sb) {
-    return;
-  }
-
-  const segUrl    = resolveBaseUrl(rep, base);
-  const indexRange = sb.getAttribute('indexRange');
+/**
+ * Stamp SegmentBase addressing attributes onto the representation element.
+ * VidelRepresentation reads these at activation time to either:
+ *   - fetch + parse the sidx box (if segment-base-index-range is present), or
+ *   - create a single <videl-segment> covering the whole file.
+ */
+function stampSegmentBase(rep: Element, repEl: HTMLElement, base: string): void {
+  const sb     = child(rep, 'SegmentBase')!;
+  const segUrl = resolveBaseUrl(rep, base);
 
   const init = child(sb, 'Initialization');
   if (init) {
@@ -474,12 +434,84 @@ function buildSegmentBase(rep: Element, repEl: HTMLElement, base: string): void 
     }
   }
 
-  const segEl = document.createElement('videl-segment');
-  segEl.setAttribute('url', segUrl);
+  repEl.setAttribute('segment-base-url', segUrl);
+
+  const indexRange = sb.getAttribute('indexRange');
   if (indexRange) {
-    segEl.setAttribute('byte-range', indexRange);
+    repEl.setAttribute('segment-base-index-range', indexRange);
   }
-  repEl.appendChild(segEl);
+}
+
+/**
+ * Stamp SegmentTemplate addressing attributes onto the representation element.
+ *
+ * $RepresentationID$ and $Bandwidth$ are pre-expanded here (they are known
+ * at parse time and constant for the representation).  $Number$ and $Time$
+ * are left unexpanded — VidelRepresentation substitutes those per-segment.
+ *
+ * The media template is also resolved against the base URL so
+ * VidelRepresentation does not need to know the base URL at activation time.
+ *
+ * Example after pre-expansion + resolution:
+ *   input:  media="video/$RepresentationID$/seg$Number$.m4s", base="https://cdn.example.com/"
+ *   output: "https://cdn.example.com/video/vid1/seg$Number$.m4s"
+ */
+function stampSegmentTemplate(
+  repEl:   HTMLElement,
+  st:      SegTemplate,
+  vars:    { id: string; bandwidth: number },
+  base:    string,
+  liveCtx?: LiveContext
+): void {
+  // Stamp initialization-url (unchanged from before).
+  if (st.initialization) {
+    repEl.setAttribute(
+      'initialization-url',
+      resolveUrl(expandTemplate(st.initialization, vars), base)
+    );
+  }
+
+  // Pre-expand identity vars in the media template then resolve against base.
+  // $Number$ and $Time$ tokens survive because vars does not include them,
+  // and expandTemplate preserves unknown/undefined variables intact.
+  const resolvedMedia = resolveUrl(expandTemplate(st.media!, vars), base);
+  repEl.setAttribute('segment-template-media',        resolvedMedia);
+  repEl.setAttribute('segment-template-timescale',    String(st.timescale));
+  repEl.setAttribute('segment-template-start-number', String(st.startNumber));
+  repEl.setAttribute('segment-template-pto',          String(st.pto));
+
+  if (st.segDuration !== undefined) {
+    repEl.setAttribute('segment-template-duration', String(st.segDuration));
+  }
+
+  if (st.timeline && st.timeline.length > 0) {
+    // Serialize the S-element array to JSON.  Only t/d/r are needed; t is
+    // optional (the representation uses the running cursor if absent).
+    const timelineJson = JSON.stringify(
+      st.timeline.map(s => {
+        const entry: { d: number; r: number; t?: number } = {
+          d: Number(s.getAttribute('d') ?? 0),
+          r: Number(s.getAttribute('r') ?? 0),
+        };
+        if (s.hasAttribute('t')) {
+          entry.t = Number(s.getAttribute('t'));
+        }
+        return entry;
+      })
+    );
+    repEl.setAttribute('segment-template-timeline', timelineJson);
+  }
+
+  // ── Live / dynamic stream metadata ─────────────────────────────────────────
+  // Stamp these so VidelRepresentation can compute segment availability from
+  // wall clock time without any manifest refresh.
+  if (liveCtx) {
+    repEl.setAttribute('live', '');
+    repEl.setAttribute('availability-start-time', String(liveCtx.availabilityStartTime));
+    if (liveCtx.timeShiftBufferDepth > 0) {
+      repEl.setAttribute('time-shift-buffer-depth', String(liveCtx.timeShiftBufferDepth));
+    }
+  }
 }
 
 // SegmentList → one segment per SegmentURL
@@ -517,14 +549,6 @@ function buildSegmentList(sl: Element, repEl: HTMLElement, base: string): void {
     repEl.appendChild(segEl);
     idx++;
   }
-}
-
-function appendSegment(repEl: HTMLElement, url: string, startTime: number, duration: number): void {
-  const seg = document.createElement('videl-segment');
-  seg.setAttribute('url',        url);
-  seg.setAttribute('start-time', String(startTime));
-  seg.setAttribute('duration',   String(duration));
-  repEl.appendChild(seg);
 }
 
 // ---------------------------------------------------------------------------
@@ -575,28 +599,6 @@ function mergeSegTemplate(
 }
 
 // ---------------------------------------------------------------------------
-// Template variable expansion
-// ---------------------------------------------------------------------------
-
-function expandTemplate(
-  template: string,
-  vars: { id: string; bandwidth: number; number?: number; time?: number }
-): string {
-  return template.replace(/\$(\w+)(?:%0(\d+)d)?\$/g, (_match, name: string, padStr?: string) => {
-    switch (name) {
-      case 'RepresentationID': return vars.id;
-      case 'Bandwidth':        return String(vars.bandwidth);
-      case 'Number': {
-        const val = String(vars.number ?? 0);
-        return padStr ? val.padStart(Number(padStr), '0') : val;
-      }
-      case 'Time': return String(vars.time ?? 0);
-      default:     return `$${name}$`; // unknown variable — leave intact
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
 // URL utilities
 // ---------------------------------------------------------------------------
 
@@ -622,17 +624,6 @@ function resolveBaseUrl(el: Element, parentBase: string): string {
     }
   }
   return resolveUrl(text, parentBase);
-}
-
-function resolveUrl(url: string, base: string): string {
-  if (!url) {
-    return base;
-  }
-  try {
-    return new URL(url, base).href;
-  } catch {
-    return url;
-  }
 }
 
 // ---------------------------------------------------------------------------
