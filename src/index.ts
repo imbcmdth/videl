@@ -17,6 +17,8 @@ export { classifyTextCodec, classifyTextMimeAndCodecs } from './lib/ergo-mse';
 export { ManagedSourceBuffer } from './lib/ergo-mse';
 export { TextSourceBuffer } from './lib/ergo-mse';
 export { SyntheticTimeRanges } from './lib/ergo-mse';
+export { ErgoMediaSource } from './lib/ergo-mse';
+export type { AddSourceBufferOptions } from './lib/ergo-mse';
 
 // ── lib/mp4 ──────────────────────────────────────────────────────────────────
 export { Fmp4TextDemuxer } from './lib/mp4';

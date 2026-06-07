@@ -16,3 +16,5 @@ export { SyntheticTimeRanges } from './synthetic-time-ranges';
 
 export { ManagedSourceBuffer } from './managed-source-buffer';
 export { TextSourceBuffer } from './text-source-buffer';
+export { ErgoMediaSource } from './ergo-media-source';
+export type { AddSourceBufferOptions } from './ergo-media-source';

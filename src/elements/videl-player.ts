@@ -1,5 +1,5 @@
 import { parseMpd } from '../parser/mpd-parser';
-import { ManagedSourceBuffer, TextSourceBuffer } from '../lib/ergo-mse';
+import { ErgoMediaSource, TextSourceBuffer } from '../lib/ergo-mse';
 import type { ISourceBuffer } from '../lib/ergo-mse';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
@@ -53,8 +53,7 @@ export class VidelPlayer extends HTMLElement {
 
   // ── MSE state ─────────────────────────────────────────────────────────────
 
-  #mediaSource:  MediaSource | null = null;
-  #objectUrl:    string | null      = null;
+  #ergoMse:      ErgoMediaSource | null = null;
   #sourceBuffers = new Map<string, ISourceBuffer>();
 
   // ── Pump state ────────────────────────────────────────────────────────────
@@ -562,36 +561,12 @@ export class VidelPlayer extends HTMLElement {
   // ── MSE setup ─────────────────────────────────────────────────────────────
 
   async #setupMse(presEl: Element, signal: AbortSignal): Promise<void> {
-    const ms  = new MediaSource();
-    this.#mediaSource = ms;
-    const url = URL.createObjectURL(ms);
-    this.#objectUrl   = url;
-    this.#video.src   = url;
+    const mse = new ErgoMediaSource();
+    this.#ergoMse = mse;
 
-    await new Promise<void>((resolve, reject) => {
-      const h = {
-        onOpen: () => {
-          ms.removeEventListener('sourceopen', h.onOpen);
-          ms.removeEventListener('error', h.onErr);
-          resolve();
-        },
-        onErr: () => {
-          ms.removeEventListener('sourceopen', h.onOpen);
-          ms.removeEventListener('error', h.onErr);
-          reject(new Error('MediaSource error'));
-        }
-      };
+    await mse.attach(this.#video, signal);
 
-      ms.addEventListener('sourceopen', h.onOpen, { once: true });
-      ms.addEventListener('error', h.onErr, { once: true });
-      signal.addEventListener('abort', () => {
-        ms.removeEventListener('sourceopen', h.onOpen);
-        ms.removeEventListener('error', h.onErr);
-        reject(new DOMException('Aborted', 'AbortError'));
-      });
-    });
-
-    if (signal.aborted || ms.readyState !== 'open') {
+    if (signal.aborted || mse.readyState !== 'open') {
       return;
     }
 
@@ -604,7 +579,7 @@ export class VidelPlayer extends HTMLElement {
     const isLive = presEl.getAttribute('type') === 'dynamic';
     if (isLive) {
       try {
-        ms.duration = Infinity;
+        mse.duration = Infinity;
       } catch { /* ignore — some browsers reject this if readyState != 'open' */ }
     }
 
@@ -631,37 +606,31 @@ export class VidelPlayer extends HTMLElement {
         continue;
       }
 
-      // Text tracks use a TextSourceBuffer — no real MSE SourceBuffer needed.
-      if (contentType === 'text') {
-        if (this.#sourceBuffers.has('text')) {
-          // Already created for a prior text ADS (including the None ADS).
-          ads.sourceBuffer = this.#sourceBuffers.get('text') ?? null;
-          continue;
-        }
-        const label = ads.getAttribute('label') ?? ads.getAttribute('lang') ?? 'subtitles';
-        const lang  = ads.getAttribute('lang')  ?? '';
-
-        trace(this, 'mse', 'add-text-source-buffer', { label, lang, codecs });
-        const tsb = new TextSourceBuffer(this.#video, label, lang, codecs);
-
-        this.#sourceBuffers.set('text', tsb);
-        ads.sourceBuffer = tsb;
-        continue;
-      }
-
-      if (!mimeAndCodecs || !MediaSource.isTypeSupported(mimeAndCodecs)) {
+      if (!mimeAndCodecs || !ErgoMediaSource.isTypeSupported(mimeAndCodecs)) {
         // eslint-disable-next-line no-console
         console.warn(`[videl-player] unsupported codec for ${contentType}: ${mimeAndCodecs}`);
         continue;
       }
 
-      try {
-        trace(this, 'mse', 'add-source-buffer', { contentType, mimeAndCodecs });
-        const sb  = ms.addSourceBuffer(mimeAndCodecs);
-        const msb = new ManagedSourceBuffer(sb);
+      // Text tracks reuse a single TextSourceBuffer across multiple ADS.
+      if (contentType === 'text' && this.#sourceBuffers.has('text')) {
+        ads.sourceBuffer = this.#sourceBuffers.get('text') ?? null;
+        continue;
+      }
 
-        this.#sourceBuffers.set(contentType, msb);
-        ads.sourceBuffer = msb;
+      try {
+        const label = ads.getAttribute('label') ?? ads.getAttribute('lang') ?? 'subtitles';
+        const lang  = ads.getAttribute('lang')  ?? '';
+
+        if (contentType === 'text') {
+          trace(this, 'mse', 'add-text-source-buffer', { label, lang, codecs });
+        } else {
+          trace(this, 'mse', 'add-source-buffer', { contentType, mimeAndCodecs });
+        }
+
+        const sb = mse.addSourceBuffer(mimeAndCodecs, { label, lang });
+        this.#sourceBuffers.set(contentType, sb);
+        ads.sourceBuffer = sb;
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(`[videl-player] addSourceBuffer failed for ${contentType}:`, e);
@@ -720,22 +689,12 @@ export class VidelPlayer extends HTMLElement {
       }
     }
 
-    if (this.#mediaSource) {
-      trace(this, 'mse', 'teardown', { readyState: this.#mediaSource.readyState });
-      try {
-        if (this.#mediaSource.readyState === 'open') {
-          this.#mediaSource.endOfStream();
-        }
-      } catch { /* ignore */ }
-      this.#mediaSource = null;
-    }
-    if (this.#objectUrl) {
-      URL.revokeObjectURL(this.#objectUrl);
-      this.#objectUrl = null;
+    if (this.#ergoMse) {
+      trace(this, 'mse', 'teardown', { readyState: this.#ergoMse.readyState });
+      this.#ergoMse.detach();
+      this.#ergoMse = null;
     }
     this.#sourceBuffers.clear();
-    this.#video.removeAttribute('src');
-    this.#video.load();
   }
 
   // ── Pump ──────────────────────────────────────────────────────────────────
@@ -809,7 +768,7 @@ export class VidelPlayer extends HTMLElement {
    * VidelRepresentation at activation time.
    */
   #updateLiveSeekableRange(): void {
-    const ms = this.#mediaSource;
+    const ms = this.#ergoMse;
     if (!ms || ms.readyState !== 'open') {
       return;
     }
@@ -849,7 +808,7 @@ export class VidelPlayer extends HTMLElement {
    * playlist advancement never happens.
    */
   #maybeEndOfStream(): void {
-    if (!this.#mediaSource || this.#mediaSource.readyState !== 'open') {
+    if (!this.#ergoMse || this.#ergoMse.readyState !== 'open') {
       return;
     }
     if (!this.#activePresentation || this.#sourceBuffers.size === 0) {
@@ -876,7 +835,7 @@ export class VidelPlayer extends HTMLElement {
 
     trace(this, 'mse', 'end-of-stream', { duration: dur });
     try {
-      this.#mediaSource.endOfStream();
+      this.#ergoMse!.endOfStream();
     } catch {
       // Already ended or MediaSource closed — safe to ignore.
     }
