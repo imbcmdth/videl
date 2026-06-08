@@ -93,11 +93,16 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   debug                      = false;
 
   // Pump-driven UI state (stamped by videlUpdate on every tick).
-  currentTime   = 0;
+  /** Raw video.currentTime (player-time). @deprecated — UI scrubber only. */
+  currentTime      = 0;
+  /** Wall-clock epoch seconds. Primary time field for all logic. */
+  currentWallTime  = 0;
   paused        = true;
   volume        = 1;
   muted         = false;
+  /** Wall-clock epoch seconds (video.seekable + wallAnchor). */
   seekableStart = 0;
+  /** Wall-clock epoch seconds (video.seekable + wallAnchor). */
   seekableEnd   = 0;
 
   /** Which informational menu is open: `'audio' | 'text' | 'quality' | null`. */
@@ -169,13 +174,27 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // fields shadow Lit's reactive accessors, so assignment alone does not
     // schedule a render. Explicitly request an update so the seekbar / time
     // display track playback on every pump tick.
-    this.currentTime   = state.currentTime;
+    // Stamp both time fields each tick.
+    // currentWallTime is used for all logic (period eviction, seekbar position).
+    // currentTime (deprecated) is kept for any legacy/external references.
+    this.currentWallTime = state.currentWallTime;
+    this.currentTime     = state.currentTime;
     this.paused        = state.paused;
     this.volume        = state.volume;
     this.muted         = state.muted;
     this.seekableStart = state.seekableStart;
     this.seekableEnd   = state.seekableEnd;
     (this as unknown as LitElement).requestUpdate();
+
+    // For dynamic (live / live-dvr) streams, maintain the seekbar's period
+    // segments every tick (ADR-0005):
+    //   • flex-grow of each period = intersection with the current DVR window,
+    //     so the total seekbar width stays constant and the oldest segment
+    //     visibly shrinks as it approaches the window trailing edge.
+    //   • Evict periods that have fallen entirely behind seekableStart.
+    if (this.presentationType === 'dynamic') {
+      this.#updateLivePeriodWindows(state.seekableStart, state.seekableEnd);
+    }
 
     const active = this.#childPeriods.find(p => p.getAttribute('videl-state') === 'active');
     if (active) {
@@ -203,6 +222,47 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   get #childPeriods(): Element[] {
     return Array.from((this as unknown as HTMLElement).children).filter((el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period') as Element[];
+  }
+
+  /**
+   * For live / live-dvr streams, called every pump tick to:
+   *
+   * 1. **Evict** any period whose entire span has fallen behind the DVR
+   *    window trailing edge (`period.start + period.duration < seekableStart`).
+   *    The period is deactivated and removed from the DOM.
+   *
+   * 2. **Resize** each remaining period's `flex-grow` to the intersection of
+   *    the period with `[seekableStart, seekableEnd]`, keeping the total
+   *    seekbar width constant even as the window slides.
+   *
+   *    Open-ended (live-edge) periods use `seekableEnd` as their right bound.
+   */
+  #updateLivePeriodWindows(seekableStart: number, seekableEnd: number): void {
+    const self = this as unknown as HTMLElement;
+    // Snapshot the list before iterating — we may remove elements mid-loop.
+    for (const period of [...this.#childPeriods]) {
+      const pStart  = Number(period.getAttribute('start') ?? 0);
+      const pDurStr = period.getAttribute('duration');
+      const pDur    = pDurStr !== null ? Number(pDurStr) : null;
+      const pEnd    = pDur !== null ? pStart + pDur : Infinity;
+
+      // Evict: period entirely behind the DVR window trailing edge.
+      // Open-ended periods (pDur === null) are the live edge and are never evicted.
+      if (pDur !== null && pEnd <= seekableStart) {
+        period.removeAttribute('videl-state'); // cascade-deactivates children
+        self.removeChild(period);
+        continue;
+      }
+
+      // Windowed flex-grow: visible portion = period ∩ [seekableStart, seekableEnd].
+      // Never let it reach 0 — keep a 0.001-unit sliver so the element stays
+      // in flow (flex-grow:0 removes it visually but keeps it in the DOM,
+      // which is fine; the 0.001 is just cosmetic insurance).
+      const visStart = Math.max(pStart, seekableStart);
+      const visEnd   = Math.min(pEnd === Infinity ? seekableEnd : pEnd, seekableEnd);
+      const visDur   = Math.max(0.001, visEnd - visStart);
+      (period as HTMLElement).style.flexGrow = String(visDur);
+    }
   }
 
   /** Check if there are any adaptation sets of a given content type. */
@@ -260,7 +320,14 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       const xml = await response.text();
 
       const self    = this as unknown as HTMLElement;
-      const subtree = parseMpd(xml, this.src);
+      // Read tsbdDefault from the parent player element (ADR-0005) so that
+      // playlist-mode presentations inherit the same DVR window configuration
+      // as presentations created by the player's own src-attribute load path.
+      const tsbdDefault = Math.max(
+        0,
+        Number(self.parentElement?.getAttribute('time-shift-buffer-depth-default') ?? 0)
+      );
+      const subtree = parseMpd(xml, this.src, { tsbdDefault });
 
       // Remove existing period children — preserve all other light-DOM content.
       for (const child of [...self.children]) {
@@ -331,8 +398,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     const frac  = Number((e.target as HTMLInputElement).value);
     // Use the live seekable range when available; fall back to the manifest
     // duration for VOD streams that have not yet received a pump tick.
-    const start = this.seekableStart;
-    const end   = this.seekableEnd > 0
+    const isLive = this.presentationType === 'dynamic';
+    const start  = this.seekableStart;
+    const end    = isLive && this.seekableEnd > 0
       ? this.seekableEnd
       : (this.mediaPresentationDuration ?? this.duration ?? 0);
     const span  = end - start;
@@ -448,16 +516,20 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    // Prefer the live seekable range (updated every pump tick via video.seekable).
-    // Fall back to the static manifest duration for VOD streams on the first
-    // render before the first pump tick has arrived.
-    const seekStart = this.seekableStart;
-    const seekEnd   = this.seekableEnd > 0
+    // For VOD (type="static"), always use the manifest duration as the seek
+    // range — video.seekable only covers buffered content and grows as segments
+    // are appended, which makes the seekbar appear to expand over time.
+    // For live (type="dynamic"), use the seekable range maintained by
+    // setLiveSeekableRange (updated every pump tick via video.seekable).
+    const isLive    = this.presentationType === 'dynamic';
+    const seekStart = this.seekableStart;  // wall-clock epoch seconds
+    const seekEnd   = isLive && this.seekableEnd > 0
       ? this.seekableEnd
       : (this.mediaPresentationDuration ?? this.duration ?? 0);
     const seekSpan  = seekEnd - seekStart;
-    const progress  = seekSpan > 0 ? (this.currentTime - seekStart) / seekSpan : 0;
-    const isLive    = this.presentationType === 'dynamic';
+    // Use currentWallTime (wall-clock epoch seconds) to match seekStart/End.
+    // VOD: wallAnchor=0 so currentWallTime === currentTime — identical result.
+    const progress  = seekSpan > 0 ? (this.currentWallTime - seekStart) / seekSpan : 0;
     // For display: VOD shows total duration; live shows the seekable span (DVR depth).
     const displayDur = isLive ? seekSpan : seekEnd;
 
@@ -626,6 +698,10 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           display: flex;
           align-items: center;
         }
+        /* Hide the seek bar entirely for live streams with no DVR window. */
+        :host([no-seek]) .seek-row {
+          display: none;
+        }
         .seek-track {
           display: flex;
           gap: 2px;
@@ -758,7 +834,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           </button>
 
           <span class="time-display">
-            ${this.#formatTime(this.currentTime - seekStart)} / ${this.#formatTime(displayDur)}
+            ${this.#formatTime(this.currentWallTime - seekStart)} / ${this.#formatTime(displayDur)}
           </span>
 
           <span class="spacer"></span>

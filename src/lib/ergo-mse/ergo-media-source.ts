@@ -42,6 +42,16 @@ export class ErgoMediaSource {
   #videoEl: HTMLVideoElement | null = null;
   #objectUrl: string | null = null;
 
+  /**
+   * Wall-clock epoch second corresponding to video.currentTime = 0.
+   * Set by videl-player after sourceopen, before any setLiveSeekableRange calls.
+   *
+   * VOD:      0  (identity — player-time equals wall-clock)
+   * live:     activationNow
+   * live-dvr: activationNow − TSBD
+   */
+  wallAnchor = 0;
+
   constructor() {
     this.#ms = new MediaSource();
   }
@@ -187,10 +197,14 @@ export class ErgoMediaSource {
   }
 
   /**
-   * Update the seekable range for live streams.  Should be called on every
+   * Update the seekable range for live streams. Should be called on every
    * pump tick while the stream is live.
+   *
+   * Arguments are **wall-clock epoch seconds**. Translates to player-time
+   * (video.currentTime space) by subtracting wallAnchor before calling the
+   * underlying MediaSource.setLiveSeekableRange.
    */
-  setLiveSeekableRange(start: number, end: number): void {
-    this.#ms.setLiveSeekableRange(start, end);
+  setLiveSeekableRange(wallStart: number, wallEnd: number): void {
+    this.#ms.setLiveSeekableRange(wallStart - this.wallAnchor, wallEnd - this.wallAnchor);
   }
 }

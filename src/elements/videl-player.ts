@@ -1,5 +1,6 @@
 import { parseMpd } from '../parser/mpd-parser';
 import { ErgoMediaSource, TextSourceBuffer } from '../lib/ergo-mse';
+import { OffsetTimeRanges } from '../lib/ergo-mse/offset-time-ranges';
 import type { ISourceBuffer } from '../lib/ergo-mse';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
@@ -44,7 +45,7 @@ import { VidelPresentation } from './videl-presentation';
  *  `playbackRate` (get/set) — all delegate to the internal `<video>`.
  */
 export class VidelPlayer extends HTMLElement {
-  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'debug'];
+  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'debug', 'time-shift-buffer-depth-default'];
 
   // ── Internal DOM ──────────────────────────────────────────────────────────
 
@@ -60,8 +61,22 @@ export class VidelPlayer extends HTMLElement {
 
   #tickMs       = 250;
   #bufferAhead  = 30;
+  // Default effective timeShiftBufferDepth when the MPD omits the attribute.
+  // 0 = pure-live (no DVR window). Consumers set time-shift-buffer-depth-default
+  // to a positive number to enable DVR on streams that omit timeShiftBufferDepth.
+  #tsbdDefault  = 0;
   #pumpTimer:   ReturnType<typeof setTimeout> | null = null;
   #activePresentation: Element | null = null;
+
+  /**
+   * Wall-clock epoch second corresponding to video.currentTime = 0.
+   * Computed once at sourceopen and stamped on every ISourceBuffer.
+   *
+   * VOD:      0  (identity — currentWallTime === currentTime)
+   * live:     Date.now()/1000  (live edge ≈ currentTime 0)
+   * live-dvr: Date.now()/1000 − TSBD  (DVR window start = currentTime 0)
+   */
+  #wallAnchor = 0;
 
   // ── "Now playing" mirror ──────────────────────────────────────────────────
   // The active presentation becomes the stage overlay, so it cannot also sit in
@@ -84,6 +99,11 @@ export class VidelPlayer extends HTMLElement {
 
   #bandwidth = 1_000_000; // optimistic start; real throughput replaces it quickly
   #minFetchLatency = Infinity; // track the minimum fetch latency observed so far
+
+  // ── Gap recovery (automatic seek-forward on stalls) ──────────────────────
+  // Track when the video enters a waiting state so we can detect buffer gaps
+  // and seek forward after waiting for a duration equal to the gap size.
+  #waitingStartTime: number | null = null;
 
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
@@ -375,6 +395,8 @@ export class VidelPlayer extends HTMLElement {
       this.#tickMs = Math.max(16, Number(value ?? 250));
     } else if (name === 'buffer-ahead') {
       this.#bufferAhead = Math.max(1, Number(value ?? 30));
+    } else if (name === 'time-shift-buffer-depth-default') {
+      this.#tsbdDefault = Math.max(0, Number(value ?? 0));
     } else if (name === 'debug') {
       this.#propagateDebug(value !== null);
     }
@@ -526,7 +548,7 @@ export class VidelPlayer extends HTMLElement {
         return;
       }
 
-      const presEl = parseMpd(xml, src);
+      const presEl = parseMpd(xml, src, { tsbdDefault: this.#tsbdDefault });
       if (signal.aborted) {
         return;
       }
@@ -572,16 +594,49 @@ export class VidelPlayer extends HTMLElement {
 
     trace(this, 'mse', 'source-open', {});
 
-    // For live (type="dynamic") streams, duration must be Infinity so MSE
-    // does not try to bound the seekable range by a fixed endpoint.
-    // setLiveSeekableRange is called on each pump tick to maintain the
-    // sliding DVR window.
+    // Set MediaSource.duration according to stream format (ADR-0005):
+    //
+    //   live / live-dvr (type="dynamic") → Infinity
+    //     MSE must not bound the seekable range; setLiveSeekableRange on each
+    //     pump tick maintains the sliding DVR window for live-dvr, or is
+    //     skipped for pure-live (TSBD=0, seekbar hidden).
+    //
+    //   vod (type="static") → mediaPresentationDuration (finite)
+    //     Setting a finite duration immediately makes video.seekable span
+    //     [0, duration] so the seekbar is full-width from the first frame and
+    //     forward seeks are not clamped to the buffered edge.
     const isLive = presEl.getAttribute('type') === 'dynamic';
     if (isLive) {
       try {
         mse.duration = Infinity;
       } catch { /* ignore — some browsers reject this if readyState != 'open' */ }
+    } else {
+      const vodDur = Number(presEl.getAttribute('media-presentation-duration') ?? 0);
+      if (vodDur > 0) {
+        try {
+          mse.duration = vodDur;
+        } catch { /* ignore */ }
+      }
     }
+
+    // Compute wallAnchor: the wall-clock epoch second corresponding to
+    // video.currentTime = 0. This single value anchors the entire component
+    // tree to wall-clock epoch time (ADR-0005 unified wall-clock model).
+    //
+    //   VOD:      wallAnchor = 0  (identity — currentWallTime === currentTime)
+    //   live:     wallAnchor = now  (live edge maps to currentTime ≈ 0)
+    //   live-dvr: wallAnchor = now − TSBD  (DVR window start = currentTime 0)
+    if (isLive) {
+      const activeRep = presEl.querySelector('videl-representation');
+      const tsbd = Number(activeRep?.getAttribute('time-shift-buffer-depth') ?? '0');
+      this.#wallAnchor = Date.now() / 1000 - tsbd;
+    } else {
+      this.#wallAnchor = 0;
+    }
+
+    // Stamp wallAnchor on the MediaSource wrapper so setLiveSeekableRange
+    // can translate wall-clock values to player-time.
+    mse.wallAnchor = this.#wallAnchor;
 
     const adsSets = [...presEl.querySelectorAll('videl-adaptation-set')] as VidelAdaptationSet[];
 
@@ -629,6 +684,7 @@ export class VidelPlayer extends HTMLElement {
         }
 
         const sb = mse.addSourceBuffer(mimeAndCodecs, { label, lang });
+        sb.wallAnchor = this.#wallAnchor;
         this.#sourceBuffers.set(contentType, sb);
         ads.sourceBuffer = sb;
       } catch (e) {
@@ -667,6 +723,7 @@ export class VidelPlayer extends HTMLElement {
       this.#activePresentation = null;
     }
     this.#clearInactivityTimer();
+    this.#waitingStartTime = null; // Clear gap recovery state on teardown
     this.removeAttribute('videl-user-inactive');
     this.#updateMirror();
   }
@@ -723,23 +780,32 @@ export class VidelPlayer extends HTMLElement {
     }
     const sourceBuffered = new Map<string, TimeRanges>();
     for (const [ct, msb] of this.#sourceBuffers) {
-      sourceBuffered.set(ct, msb.buffered);
+      sourceBuffered.set(ct, msb.buffered); // already epoch-shifted by ManagedSourceBuffer
     }
 
-    const seekable     = this.#video.seekable;
-    const seekableStart = seekable.length > 0 ? seekable.start(0)                    : 0;
-    const seekableEnd   = seekable.length > 0 ? seekable.end(seekable.length - 1)    : 0;
+    // Shift video.seekable (player-time) to wall-clock epoch seconds.
+    // seekableStart/End in PlayerState are wall-clock so that videl-presentation
+    // can compare them directly against wall-clock period.start values for
+    // period eviction and seekbar resizing (ADR-0005).
+    const seekable      = this.#video.seekable;
+    const seekableStart = seekable.length > 0 ? seekable.start(0)                 + this.#wallAnchor : 0;
+    const seekableEnd   = seekable.length > 0 ? seekable.end(seekable.length - 1) + this.#wallAnchor : 0;
+
+    const rawTime        = this.#video.currentTime;
+    const currentWallTime = rawTime + this.#wallAnchor;
 
     const state: PlayerState = {
-      currentTime: this.#video.currentTime,
-      buffered: this.#video.buffered,
-      bandwidth: this.#bandwidth,
+      currentWallTime,
+      wallAnchor:  this.#wallAnchor,
+      currentTime: rawTime, // @deprecated — logging only
+      buffered:    new OffsetTimeRanges(this.#video.buffered, this.#wallAnchor),
+      bandwidth:   this.#bandwidth,
       playbackRate: Math.max(this.#video.playbackRate, 0.01),
       bufferAhead: this.#bufferAhead,
       sourceBuffered,
-      paused: this.#video.paused,
-      volume: this.#video.volume,
-      muted: this.#video.muted,
+      paused:  this.#video.paused,
+      volume:  this.#video.volume,
+      muted:   this.#video.muted,
       seekableStart,
       seekableEnd,
     };
@@ -748,24 +814,23 @@ export class VidelPlayer extends HTMLElement {
     }
     this.#updateLiveSeekableRange();
     this.#maybeEndOfStream();
+    this.#maybeRecoverFromGap(state);
   }
 
   /**
-   * For live (type="dynamic") streams, maintain the MSE seekable window by
-   * calling `setLiveSeekableRange` on every pump tick.
+   * For live-dvr (type="dynamic", TSBD > 0) streams, maintain the MSE seekable
+   * window by calling `setLiveSeekableRange` on every pump tick.
    *
-   * The seekable range is `[liveEdge − TSBD, liveEdge]` where:
+   * The seekable range in player-time (currentTime) space is:
+   *   liveEdge = now − wallAnchor
+   *   start    = liveEdge − TSBD
    *
-   *   liveEdge = (Date.now()/1000 − availabilityStartTime) + timestampOffset
+   * wallAnchor = activationNow − TSBD, so at activation liveEdge = TSBD and
+   * start = 0. As wall-clock advances the window slides forward at 1:1 rate.
    *
-   * At activation time this equals TSBD (the DVR depth).  It grows at 1:1
-   * wall-clock rate as the live edge advances.  The window start tracks it
-   * at distance TSBD, giving the browser a stable DVR region to expose.
-   *
-   * Reads `availability-start-time`, `timestamp-offset`, and
-   * `time-shift-buffer-depth` directly from the first active live
-   * representation — all three are stamped by the parser and/or by
-   * VidelRepresentation at activation time.
+   * For pure-live (TSBD = 0) and VOD, this is skipped entirely — wallAnchor
+   * encapsulates whether we are live-dvr without needing to inspect child
+   * representations.
    */
   #updateLiveSeekableRange(): void {
     const ms = this.#ergoMse;
@@ -773,27 +838,24 @@ export class VidelPlayer extends HTMLElement {
       return;
     }
 
-    // Find any active live representation (video or audio — they share the
-    // same live metadata so either works).
+    // Read TSBD from the active representation to know if we're live-dvr.
     const activeRep = this.#activePresentation
-      ?.querySelector('videl-representation[live]');
+      ?.querySelector('videl-representation[videl-state=active]');
     if (!activeRep) {
       return;
     }
-
-    const availStart = Number(activeRep.getAttribute('availability-start-time') ?? '0');
-    const tsOffset   = Number(activeRep.getAttribute('timestamp-offset')        ?? '0');
-    const tsbd       = Number(activeRep.getAttribute('time-shift-buffer-depth') ?? '0');
+    const tsbd = Number(activeRep.getAttribute('time-shift-buffer-depth') ?? '0');
     if (tsbd <= 0) {
-      return;
+      return; // pure-live or VOD — no sliding window to maintain
     }
 
-    const nowSec   = Date.now() / 1000;
-    const liveEdge = (nowSec - availStart) + tsOffset;
-    const start    = liveEdge - tsbd;
+    // Pass wall-clock epoch seconds. ErgoMediaSource.setLiveSeekableRange
+    // subtracts wallAnchor to produce the player-time values the browser needs.
+    const nowSec   = Date.now() / 1000;           // wall-clock liveEdge
+    const start    = nowSec - tsbd;               // wall-clock DVR window start
 
     try {
-      ms.setLiveSeekableRange(Math.max(0, start), liveEdge);
+      ms.setLiveSeekableRange(Math.max(this.#wallAnchor, start), nowSec);
     } catch { /* ignore — setLiveSeekableRange may throw if duration != Infinity */ }
   }
 
@@ -841,10 +903,103 @@ export class VidelPlayer extends HTMLElement {
     }
   }
 
+  // ── Gap recovery ──────────────────────────────────────────────────────────
+
+  /**
+   * Automatic seek-forward recovery from buffer gaps.
+   *
+   * When the video stalls (enters "waiting" state), track how long it's been
+   * waiting. Find the nearest buffer ahead of the current position in both
+   * video and audio tracks. If we've been waiting for at least as long as the
+   * gap to that buffer, seek forward to just after the buffer start.
+   *
+   * This handles:
+   * - Live streams starting just before currentTime=0 due to timing fudge
+   * - Buffer gaps from network issues or encoder hiccups
+   * - Keeps live streams roughly synchronized (small gap → quick recovery)
+   *
+   * The wait duration equals the gap size, so a 0.5s gap triggers after 0.5s,
+   * while a 5s gap waits 5s. This prevents premature seeks that would shift
+   * live streams unnecessarily far ahead.
+   */
+  #maybeRecoverFromGap(state: PlayerState): void {
+    const video = this.#video;
+    const now = performance.now() / 1000;
+
+    // readyState < HAVE_FUTURE_DATA (3) means the video is stalled waiting for data
+    const isWaiting = video.readyState < 3 && !video.paused && !video.ended;
+
+    if (!isWaiting) {
+      // Not waiting — clear any tracked waiting state
+      if (this.#waitingStartTime !== null) {
+        trace(this, 'pump', 'gap-recovery-resumed', {
+          waitedFor: +(now - this.#waitingStartTime).toFixed(3)
+        });
+        this.#waitingStartTime = null;
+      }
+      return;
+    }
+
+    // Start tracking waiting time if this is the first waiting tick
+    if (this.#waitingStartTime === null) {
+      this.#waitingStartTime = now;
+      trace(this, 'pump', 'gap-recovery-waiting', {
+        currentWallTime: +state.currentWallTime.toFixed(3)
+      });
+      return;
+    }
+
+    const waitingDuration = now - this.#waitingStartTime;
+
+    // Find the nearest buffer ahead of currentWallTime in video and audio tracks
+    let nearestBufferStart = Infinity;
+
+    for (const [contentType, ranges] of state.sourceBuffered) {
+      // Only check video and audio — text tracks don't block playback
+      if (contentType !== 'video' && contentType !== 'audio') {
+        continue;
+      }
+
+      for (let i = 0; i < ranges.length; i++) {
+        const start = ranges.start(i);
+        // Find buffers that start ahead of the current position
+        if (start > state.currentWallTime && start < nearestBufferStart) {
+          nearestBufferStart = start;
+        }
+      }
+    }
+
+    // No buffer found ahead — nothing to seek to
+    if (!isFinite(nearestBufferStart)) {
+      return;
+    }
+
+    // Calculate the gap to the nearest buffer (in wall-clock seconds)
+    const gapSize = nearestBufferStart - state.currentWallTime;
+
+    // Only seek if we've been waiting for at least as long as the gap
+    if (waitingDuration >= gapSize) {
+      // Seek to just after the buffer start (in player-time)
+      const seekTarget = nearestBufferStart + 0.06 - state.wallAnchor;
+
+      trace(this, 'pump', 'gap-recovery-seek', {
+        gapSize: +gapSize.toFixed(3),
+        waitedFor: +waitingDuration.toFixed(3),
+        from: +state.currentWallTime.toFixed(3),
+        to: +nearestBufferStart.toFixed(3),
+        seekTarget: +seekTarget.toFixed(3)
+      });
+
+      this.#waitingStartTime = null;
+      this.#seekTo(seekTarget);
+    }
+  }
+
   // ── Seek ──────────────────────────────────────────────────────────────────
 
   #seekTo(time: number): void {
     trace(this, 'lifecycle', 'seek', { to: +time.toFixed(3) });
+    this.#waitingStartTime = null; // Clear gap recovery state on manual seek
     this.#video.currentTime = time;
     this.#stopPump();
     this.#pumpTick();
@@ -852,6 +1007,7 @@ export class VidelPlayer extends HTMLElement {
   }
 
   #onVideoSeeking = (): void => {
+    this.#waitingStartTime = null; // Clear gap recovery state on video seek
     this.#stopPump();
     this.#pumpTick();
     this.#startPump();
@@ -1109,7 +1265,9 @@ export class VidelPlayer extends HTMLElement {
   #onUiSeek = (event: Event): void => {
     const { time } = (event as CustomEvent).detail ?? {};
     if (typeof time === 'number' && isFinite(time)) {
-      this.#seekTo(time);
+      // The presentation dispatches a wall-clock epoch time (seekableStart/End
+      // are now wall-clock). Translate to player-time before seeking.
+      this.#seekTo(time - this.#wallAnchor);
     }
   };
 

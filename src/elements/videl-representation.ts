@@ -254,12 +254,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     }
 
     if (value === 'next' || value === 'active') {
-      // For live streams, compute the timestamp offset exactly once — before
-      // #startInit so the computed value is applied when the init append
-      // completes and sourceBuffer.timestampOffset is set.
-      if (this.live && !this.hasAttribute('videl-init-appended')) {
-        this.#computeLiveTimestampOffset();
-      }
       // Populate segments first (sync for SegmentTemplate/SegmentBase-no-sidx,
       // async for sidx).  #startInit follows immediately — for sidx streams
       // the init fetch and sidx fetch run concurrently; the pump's
@@ -297,10 +291,13 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const sbBuffered: TimeRanges =
       state.sourceBuffered?.get(contentType) ?? this.#sourceBuffer.buffered;
 
-    const { currentTime, bufferAhead } = state;
+    // All times are now in wall-clock epoch seconds (currentWallTime = video.currentTime + wallAnchor).
+    // sbBuffered is already epoch-shifted by ManagedSourceBuffer.buffered (+wallAnchor).
+    // Segment startTimes are epoch-based. Everything in the pump operates in the same space.
+    const { currentWallTime, bufferAhead } = state;
 
     // ── Seek detection ────────────────────────────────────────────────────
-    // If currentTime has jumped significantly AND the new position is not
+    // If currentWallTime has jumped significantly AND the new position is not
     // covered by the SourceBuffer, treat it as a seek.  After a seek:
     //   - The browser may have evicted any portion of the buffered content.
     //   - #fetchedSegments is stale and cannot be trusted.
@@ -313,21 +310,21 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const SEEK_THRESHOLD_S = 1.0;
     if (
       this.#lastCurrentTime >= 0 &&
-      Math.abs(currentTime - this.#lastCurrentTime) > SEEK_THRESHOLD_S &&
-      bufferedAhead(currentTime, sbBuffered) < 0.1
+      Math.abs(currentWallTime - this.#lastCurrentTime) > SEEK_THRESHOLD_S &&
+      bufferedAhead(currentWallTime, sbBuffered) < 0.1
     ) {
       trace(this, 'timeline', 'seek-reset', {
         from: +this.#lastCurrentTime.toFixed(3),
-        to: +currentTime.toFixed(3),
-        delta: +(currentTime - this.#lastCurrentTime).toFixed(3)
+        to: +currentWallTime.toFixed(3),
+        delta: +(currentWallTime - this.#lastCurrentTime).toFixed(3)
       });
       this.#fetchedSegments.clear();
       this.#timelineDrift = 0;
     }
-    this.#lastCurrentTime = currentTime;
+    this.#lastCurrentTime = currentWallTime;
     // ── end seek detection ────────────────────────────────────────────────
 
-    const ahead = bufferedAhead(currentTime, sbBuffered);
+    const ahead = bufferedAhead(currentWallTime, sbBuffered);
     if (ahead >= bufferAhead) {
       trace(this, 'pump', 'buffer-full', {
         bufferedAhead: +ahead.toFixed(2),
@@ -341,26 +338,25 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     // must happen before the segs.length === 0 guard — for live that guard
     // would always fire on the first tick (no segments yet) and prevent the
     // extension from ever running.
-    this.#extendLiveSegments();
+    this.#updateLiveSegments();
 
     const segs = this.#childSegments;
     if (segs.length === 0) {
       return;
     }
 
-    // Find the segment whose effective time range covers currentTime.
-    // "Effective" start = declared startTime + cumulative timeline drift.
+    // Find the segment whose effective time range covers currentWallTime.
+    // "Effective" start = declared startTime (epoch) + cumulative timeline drift.
     // Using drift-adjusted times ensures the walk stays aligned after appends
     // produce slightly different durations than the manifest declared.
     let startIdx = segs.findIndex((s) => {
       const eff = s.startTime + this.#timelineDrift;
-      return eff <= currentTime + 0.1 && currentTime < eff + s.duration;
+      return eff <= currentWallTime + 0.1 && currentWallTime < eff + s.duration;
     });
     if (startIdx < 0) {
-      // currentTime is before the first segment or the timeline hasn't shifted
-      // enough — start from segment 0 if we haven't passed it, else give up.
+      // currentWallTime is before the first segment — start from segment 0.
       const firstEff = (segs[0]?.startTime ?? 0) + this.#timelineDrift;
-      startIdx = currentTime + 0.1 < firstEff ? 0 : -1;
+      startIdx = currentWallTime + 0.1 < firstEff ? 0 : -1;
     }
     if (startIdx < 0) {
       return;
@@ -490,46 +486,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   };
 
   // ── Live timestamp offset ─────────────────────────────────────────────────
-
-  /**
-   * Compute and stamp the `timestamp-offset` for live (type="dynamic") streams.
-   *
-   * For live DASH the fMP4 decode timestamps are wall-clock-based (e.g.
-   * epoch-seconds when availabilityStartTime="1970-01-01T00:00:00Z").
-   * Without correction, video.currentTime would reflect those raw timestamps
-   * (potentially billions of seconds).
-   *
-   * We want:
-   *   currentTime = 0  → DVR window start (wall clock = now − TSBD)
-   *   currentTime = TSBD → live edge at activation time
-   *
-   * Derivation:
-   *   media decode time of DVR start = (now − TSBD) − availStart
-   *   timestamp-offset = −(media time of DVR start)
-   *                    = availStart + TSBD − now
-   *
-   * The live edge currentTime then grows at 1:1 wall-clock rate:
-   *   liveEdge = (wallClock − availStart) + timestampOffset
-   *            = wallClock − availStart + availStart + TSBD − activationNow
-   *            = TSBD + (wallClock − activationNow)
-   *
-   * Called once on first activation (before #startInit), so #startInit
-   * applies the correct value to SourceBuffer.timestampOffset when the init
-   * segment is appended.
-   */
-  #computeLiveTimestampOffset(): void {
-    const availStr = this.getAttribute('availability-start-time');
-    const tsbdStr  = this.getAttribute('time-shift-buffer-depth');
-    if (!availStr) {
-      return;
-    }
-    const availStart = Number(availStr);
-    const tsbd       = tsbdStr ? Number(tsbdStr) : 30;
-    const nowSec     = Date.now() / 1000;
-    const liveOffset = availStart + tsbd - nowSec;
-    // Stamp on DOM (DOM-first principle) — Lit syncs attribute → property.
-    this.setAttribute('timestamp-offset', String(liveOffset));
-  }
 
   // ── Segment population ────────────────────────────────────────────────────
 
@@ -718,23 +674,21 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   }
 
   /**
-   * Extend the segment list for live (type="dynamic") SegmentTemplate streams.
+   * Update the live segment list: append newly available segments and remove
+   * segments that have fallen out of the DVR window.
    *
-   * Called on every videlUpdate() tick.  For VOD representations this is a
-   * no-op.  For live, computes which segment numbers are available based on
-   * wall clock time and appends any that are not yet in the child list.
+   * Segment availability (DASH spec 5.3.9.5.3):
+   *   AST(n) = availabilityStartTime + periodStart + (n − startNumber) × segDurSec
+   *   latestSegNum = startNumber + floor((now − availStart − periodStart) / segDurSec) − 1
+   *   (−1 margin: encoder may not have finished the very latest segment)
    *
-   * Segment availability:
-   *   currentSegNum  = floor((nowSec - availabilityStartTime) / segDurSec) - 1
-   *   (−1 margin: the encoder may not have finished the very latest segment)
+   * Segment startTimes are stored in currentTime space (media timestamp + timestampOffset)
+   * so the pump's findIndex can compare them directly against currentTime.
    *
-   * Bootstrap (no segments yet): generate the full DVR window worth of
-   * segments so the pump can seek within the available range.
-   *
-   * Extend (segments already exist): append only newly published segments
-   * beyond the last known one, derived from the last segment's start-time.
+   * Bootstrap: populate the full DVR window's worth of segments.
+   * Extend:    append new segments at the live edge, expire old ones at the tail.
    */
-  #extendLiveSegments(): void {
+  #updateLiveSegments(): void {
     if (!this.live) {
       return;
     }
@@ -757,29 +711,35 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const segDurSec  = segDuration / timescale;
     const nowSec     = Date.now() / 1000;
 
-    // Latest segment number available (with one-segment safety margin for encoder lag).
-    const latestSegNum = Math.floor((nowSec - availabilityStartTime) / segDurSec) - 1;
-
     const periodEl    = this.closest('videl-period');
+    // periodStart is in wall-clock epoch seconds for live streams
+    // (parser stamps availabilityStartTime + period offset per plan §5).
     const periodStart = Number(periodEl?.getAttribute('start') ?? 0);
-    const segs        = this.#childSegments;
+
+    // Latest segment number available (with one-segment safety margin for encoder lag).
+    // Per DASH spec 5.3.9.5.3: AST(n) = availabilityStartTime + periodStart + (n − startNumber) × segDurSec
+    // Solving for n: latestSegNum = startNumber + floor((now − periodStart) / segDurSec) − 1
+    // (periodStart already includes availabilityStartTime for live streams)
+    const latestSegNum = startNum + Math.floor((nowSec - periodStart) / segDurSec) - 1;
+
+    const segs = this.#childSegments;
 
     let fromSegNum: number;
 
     if (segs.length === 0) {
       // Bootstrap: start from the DVR window boundary (or startNumber if newer).
-      const tsbd = this.timeShiftBufferDepth > 0 ? this.timeShiftBufferDepth : 30;
+      // When timeShiftBufferDepth is 0 (no DVR window) start from the live edge.
+      const tsbd = this.timeShiftBufferDepth;
       const dvrStartSec = nowSec - tsbd;
       fromSegNum = Math.max(
         startNum,
-        Math.floor((dvrStartSec - availabilityStartTime) / segDurSec)
+        startNum + Math.floor((dvrStartSec - periodStart) / segDurSec)
       );
     } else {
-      // Extend: derive the last segment number from its start-time attribute,
-      // then append any newly published segments after it.
-      const lastSeg        = segs[segs.length - 1]!;
-      const lastRelSec     = lastSeg.startTime - periodStart;
-      const lastSegNum     = startNum + Math.round(lastRelSec / segDurSec);
+      // Extend: recover the last segment number from its epoch startTime.
+      const lastSeg    = segs[segs.length - 1]!;
+      const lastRelSec = lastSeg.startTime - periodStart;
+      const lastSegNum = startNum + Math.round(lastRelSec / segDurSec);
       fromSegNum = lastSegNum + 1;
     }
 
@@ -787,6 +747,34 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       return; // Nothing new yet.
     }
 
+    // ── Expire segments that have fallen out of the DVR window ────────────
+    // Segments are in epoch seconds. The DVR window starts at (liveEdge − tsbd).
+    // Remove any leading segments whose end time is at or before the boundary.
+    const tsbd = this.timeShiftBufferDepth;
+    if (tsbd > 0 && segs.length > 0) {
+      // liveEdge epoch time of the latest available segment
+      const liveEdge    = periodStart + (latestSegNum - startNum) * segDurSec;
+      const dvrBoundary = liveEdge - tsbd;
+      let expireCount = 0;
+      for (const seg of segs) {
+        if (seg.startTime + seg.duration <= dvrBoundary) {
+          expireCount++;
+        } else {
+          break; // segments are in order — no need to scan further
+        }
+      }
+      if (expireCount > 0) {
+        for (let i = 0; i < expireCount; i++) {
+          this.removeChild(segs[i]!);
+        }
+        trace(this, 'fetch', 'live-segments-expired', { count: expireCount });
+      }
+    }
+
+    // ── Append newly available segments at the live edge ──────────────────
+    // sTime is wall-clock epoch seconds: periodStart + (n − startNum) × segDurSec.
+    // The pump compares against currentWallTime (video.currentTime + wallAnchor),
+    // which is also in epoch seconds — no coordinate conversion needed.
     for (let n = fromSegNum; n <= latestSegNum; n++) {
       const i     = n - startNum;
       const url   = expandTemplate(media, { number: n });
@@ -794,10 +782,10 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       this.#appendSegmentEl(url, sTime, segDurSec);
     }
 
-    trace(this, 'fetch', 'live-segments-extended', {
-      from:   fromSegNum,
-      to:     latestSegNum,
-      count:  latestSegNum - fromSegNum + 1,
+    trace(this, 'fetch', 'live-segments-updated', {
+      from:  fromSegNum,
+      to:    latestSegNum,
+      added: latestSegNum - fromSegNum + 1,
     });
   }
 
@@ -836,10 +824,21 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       .then(() => {
         this.setAttribute('videl-init-appended', '');
         trace(this, 'buffer', 'init-append-complete', { url: this.initializationUrl });
-        // Apply presentation-time offset so the SourceBuffer (real or fake)
-        // maps media decode times to the correct MSE timeline position.
-        if (this.#sourceBuffer && this.timestampOffset !== 0) {
-          this.#sourceBuffer.timestampOffset = this.timestampOffset;
+        // Apply the wall-clock timestamp offset to the SourceBuffer.
+        //
+        // For live streams: the media timestamps are epoch-based
+        // (seconds since availabilityStartTime). We set timestampOffset =
+        // availabilityStartTime so that ManagedSourceBuffer translates it to
+        // actual SourceBuffer.timestampOffset = availStart − wallAnchor, which
+        // equals availStart + TSBD − activationNow per ADR-0005.
+        //
+        // For VOD: timestampOffset = periodStart − pto/timescale (stamped by
+        // the parser). wallAnchor = 0, so ManagedSourceBuffer applies it as-is.
+        if (this.#sourceBuffer) {
+          const wallOffset = this.live
+            ? Number(this.getAttribute('availability-start-time') ?? '0')
+            : this.timestampOffset;
+          this.#sourceBuffer.timestampOffset = wallOffset;
         }
       })
       .catch((err: unknown) => {

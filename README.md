@@ -61,6 +61,7 @@ Every element exposes a default `<slot>` so its children are always present in t
 | [`decisions/ADR-0001-mse-ownership-and-lifecycle.md`](decisions/ADR-0001-mse-ownership-and-lifecycle.md) | MSE ownership, rebuild procedure, init-segment invariants |
 | [`decisions/ADR-0002-attribute-state-vs-slot-state.md`](decisions/ADR-0002-attribute-state-vs-slot-state.md) | Why `videl-state` attribute replaces `slot` for state management |
 | [`decisions/ADR-0004-text-source-buffer.md`](decisions/ADR-0004-text-source-buffer.md) | TextSourceBuffer design: fMP4 text demuxing, VTT/TTML, sidecar tracks |
+| [`decisions/ADR-0005-time-handling-and-stream-formats.md`](decisions/ADR-0005-time-handling-and-stream-formats.md) | Unified wall-clock epoch time coordinate system (live/VOD/live-DVR) |
 | [`decisions/DEL-010-playlist-presentations.md`](decisions/DEL-010-playlist-presentations.md) | Multi-presentation playlist feature spec |
 
 ---
@@ -91,10 +92,11 @@ src/
   lib/
     ergo-mse/                 — MSE abstraction layer
       ergo-media-source.ts    — ErgoMediaSource wrapper (open/attach/endOfStream)
-      managed-source-buffer.ts — serialised SourceBuffer operation queue
+      managed-source-buffer.ts — serialised SourceBuffer operation queue with wall-clock coordinate translation
       text-source-buffer.ts   — ISourceBuffer implementation for text tracks
       text-codec.ts           — codec string classification (wvtt / stpp / sidecar)
       synthetic-time-ranges.ts — mutable TimeRanges used by TextSourceBuffer
+      offset-time-ranges.ts   — TimeRanges wrapper that shifts all values by a constant offset (wall-clock translation)
       i-source-buffer.ts      — ISourceBuffer interface
     mp4/
       box-utils.ts            — ISOBMFF box iteration and field readers
@@ -216,6 +218,16 @@ Three categories govern the `videl-` prefix on attributes:
 | **User config** | none | Consumer / developer |
 | **Internal state** | `videl-` | videl element itself |
 
+##### Time coordinate system
+
+All time values throughout the Videl API are in **wall-clock epoch seconds** (seconds since Unix epoch, Jan 1 1970) unless explicitly marked `(player-time)`. This unified coordinate system simplifies live streaming:
+
+- **VOD**: `wallAnchor = 0`, so wall-clock equals `video.currentTime` (identity).
+- **Live**: `wallAnchor = activationNow` (current epoch seconds), so `currentWallTime = video.currentTime + wallAnchor`.
+- **Live-DVR**: `wallAnchor = activationNow − timeShiftBufferDepth`, so the DVR window start maps to `currentTime = 0`.
+
+Callers always work in wall-clock epoch seconds; `ISourceBuffer` implementations (ManagedSourceBuffer, TextSourceBuffer) translate to/from player-time internally.
+
 ---
 
 ##### `<videl-player>`
@@ -228,6 +240,7 @@ Three categories govern the `videl-` prefix on attributes:
 | `tick-ms` | user config | `250` | Pump interval in milliseconds. Controls how frequently `videlUpdate` is called down the active path. |
 | `buffer-ahead` | user config | `30` | Seconds of media to buffer ahead of `currentTime` before the pump pauses segment fetching. |
 | `debug` | user config | — | When present, propagates a `debug` attribute to every descendant element, enabling their visual debug overlays. |
+| `time-shift-buffer-depth-default` | user config | `0` | Default DVR window depth in seconds for live streams when the MPD does not declare `timeShiftBufferDepth`. Set to `0` for pure-live (no DVR window / seeking disabled), or a positive number to enable seeking within the window. Overridden by MPD's `timeShiftBufferDepth` attribute if present. |
 | `playlist-collapsed` | user config | — | When present, collapses the playlist column regardless of how many presentations exist. Consumer-set CSS hook; the player never sets or clears this itself. |
 | `videl-no-playlist` | internal state | — | Present when fewer than two `<videl-presentation>` children exist. CSS uses it to collapse the playlist column. |
 | `videl-user-inactive` | internal state | — | Present after the inactivity timer fires (3 s of no pointer activity). CSS uses it to hide controls. Cleared immediately on any pointer activity. |
@@ -240,7 +253,7 @@ Three categories govern the `videl-` prefix on attributes:
 | `src` | `string` (get/set) | Reflects the `src` attribute. Setting it starts a new load. |
 | `play()` | `() => Promise<void>` | Delegates to the internal `<video>` element. |
 | `pause()` | `() => void` | Delegates to the internal `<video>` element. |
-| `currentTime` | `number` (get/set) | Reads/seeks the playhead. Setter triggers a pump reset so the next tick targets the new position. |
+| `currentTime` | `number` (get/set) | Reads/seeks the playhead in player-time (`video.currentTime`). Setter triggers a pump reset so the next tick targets the new position. Callers should use `PlayerState.currentWallTime` for component logic. |
 | `duration` | `number` (get) | Returns `media-presentation-duration` from the active presentation, falling back to `video.duration`. |
 | `paused` | `boolean` (get) | Proxies `video.paused`. |
 | `buffered` | `TimeRanges` (get) | Proxies `video.buffered`. |
@@ -250,6 +263,20 @@ Three categories govern the `videl-` prefix on attributes:
 | `playbackRate` | `number` (get/set) | Proxies `video.playbackRate`. |
 | `bufferAhead` | `number` (get/set) | Reads/writes the forward buffer target in seconds. |
 | `nativeVideo` | `HTMLVideoElement` (get) | Direct reference to the internal `<video>` element for advanced use cases. |
+
+**PlayerState** (`videlUpdate` argument)
+
+Every element receives a `PlayerState` object on each pump tick. Key fields:
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `currentWallTime` | `number` | **Wall-clock epoch seconds** — the primary time field. Use this in all component logic for seeking, buffering, and segment selection. Equals `video.currentTime + wallAnchor`. |
+| `wallAnchor` | `number` | Wall-clock epoch second at `video.currentTime = 0`. Set by the player during setup. VOD = 0, live = `activationNow`, live-dvr = `activationNow − timeShiftBufferDepth`. |
+| `currentTime` | `number` | **Player-time** (`video.currentTime`). Kept for logging/debugging; prefer `currentWallTime` for logic. |
+| `buffered` | `TimeRanges` | Combined buffered ranges from all SourceBuffers, in **wall-clock epoch seconds** (via OffsetTimeRanges). |
+| `sourceBuffered` | `Map<string, TimeRanges>` | Per-content-type buffered ranges in **wall-clock epoch seconds**, keyed by `content-type` attribute (e.g. `"video"`, `"audio"`). |
+| `seekableStart`, `seekableEnd` | `number` | **Wall-clock epoch seconds**. The playable range — used by presentation controls (seekbar) to calculate progress and dispatch seeks. |
+| `bufferAhead`, `bandwidth`, `playbackRate`, `paused`, `muted` | — | Standard playback state. |
 
 ---
 
@@ -269,12 +296,13 @@ Three categories govern the `videl-` prefix on attributes:
 | `videl-generated` | internal state | Present on presentations created by the player from its own `src` attribute (single-stream mode). Lets CSS suppress card styling for auto-generated presentations. |
 | `videl-user-inactive` | internal state | Mirrored from the parent player when the inactivity timer fires. CSS uses it to fade out the control bar. |
 | `videl-populated` | internal state | Present once the MPD has been successfully fetched and `<videl-period>` children injected. Lets test harnesses await population and CSS show loading states. |
-| `videl-current-time` | internal state | Playhead position in seconds, stamped on every pump tick. Mirrors `video.currentTime` for external observers. |
+| `videl-current-time` | internal state | Playhead position in **wall-clock epoch seconds**, stamped on every pump tick. For VOD this equals `video.currentTime`; for live it includes the `wallAnchor` offset. Mirrors the primary playback position for external observers. |
 | `videl-paused` | internal state | Present when playback is paused. Stamped by the pump. |
 | `videl-volume` | internal state | Current volume level (0–1), stamped by the pump. |
 | `videl-muted` | internal state | Present when audio is muted. Stamped by the pump. |
-| `videl-seekable-start` | internal state | Start of the seekable range in seconds. For VOD this is `0`; for live it tracks the DVR window start. |
-| `videl-seekable-end` | internal state | End of the seekable range in seconds. For VOD this is the total duration; for live it tracks the live edge. |
+| `videl-seekable-start` | internal state | Start of the seekable range in **wall-clock epoch seconds**. For VOD this is `0`; for live with DVR this tracks the window start; for pure-live this is `0` (no seek). |
+| `videl-seekable-end` | internal state | End of the seekable range in **wall-clock epoch seconds**. For VOD this is the total duration; for live it tracks the current live edge. |
+| `no-seek` | internal state | Present on live streams with no DVR window (timeShiftBufferDepth = 0). Signals the UI that seeking is disabled. |
 | `videl-menu-open` | internal state | Which informational menu is open: `"audio"`, `"text"`, or `"quality"`. Absent when no menu is open. Also stamped onto the active `<videl-period>` so its CSS can reveal the matching rows. |
 | `videl-fullscreen` | internal state | Present while the player element is the fullscreen element. Drives the fullscreen/exit-fullscreen icon swap. |
 
@@ -294,7 +322,7 @@ Three categories govern the `videl-` prefix on attributes:
 | Attribute | Origin | Description |
 |-----------|--------|-------------|
 | `period-id` | manifest | Value of `Period@id` from the MPD. Present in `videl:done` event payloads. |
-| `start` | manifest | Period start time in seconds from the presentation start. Computed cumulatively when `Period@start` is absent. |
+| `start` | manifest | Period start time in **wall-clock epoch seconds** (for live) or presentation-relative seconds (for VOD). For live, equals `availabilityStartTime + presentationOffset`. For VOD, computed cumulatively when `Period@start` is absent. |
 | `duration` | manifest | Period duration in seconds. When absent the period is open-ended (live) and `videl:done` never fires. |
 | `debug` | user config | Enables the visual debug overlay showing period id, state, start/duration, and open menu. |
 | `videl-state` | internal state | Slot state: `"next"` → `"active"` → absent. Set by the parent presentation. |
@@ -352,7 +380,7 @@ Three categories govern the `videl-` prefix on attributes:
 | `codecs` | manifest | Codec string. Used to build the `addSourceBuffer` / `changeType` argument. |
 | `initialization-url` | manifest (derived) | Absolute URL of the initialization segment (moov box). |
 | `initialization-byte-range` | manifest (derived) | Byte range `"start-end"` for the init segment when it shares the media file. Omitted for separate init files. |
-| `timestamp-offset` | manifest (computed) | `periodStart − presentationTimeOffset / timescale`. Applied to `SourceBuffer.timestampOffset` after the init segment is appended to align multi-period decode timestamps. |
+| `timestamp-offset` | manifest (computed) | For VOD: `periodStart − presentationTimeOffset / timescale`, applied to `SourceBuffer.timestampOffset` to align decode timestamps. For live: unused (ignored by #startInit); `availability-start-time` is used instead. |
 | `segment-template-media` | manifest | Pre-expanded (id, bandwidth) and base-resolved media URL template with `$Number$` / `$Time$` tokens intact. |
 | `segment-template-timescale` | manifest | Timescale (ticks per second) for converting `$Time$` values and segment durations. |
 | `segment-template-start-number` | manifest | First segment number for `$Number$` expansion (default `1`). |
@@ -362,9 +390,9 @@ Three categories govern the `videl-` prefix on attributes:
 | `segment-base-url` | manifest | Absolute URL of the media file for SegmentBase addressing. |
 | `segment-base-index-range` | manifest | Byte range of the `sidx` box. When present the representation fetches and parses it to discover segment byte ranges. |
 | `period-duration` | manifest | Duration of the containing period in seconds. Stamped for SegmentBase representations without a sidx. |
-| `live` | manifest | Boolean presence. Present when `MPD@type="dynamic"`. Suppresses `isFullyFetched` and enables live segment extension on each pump tick. |
-| `availability-start-time` | manifest | Unix epoch seconds from `MPD@availabilityStartTime`. Used to compute live segment availability. |
-| `time-shift-buffer-depth` | manifest | DVR window depth in seconds. Defines the range of past segments available for seeking in a live stream. |
+| `live` | manifest | Boolean presence. Present when `MPD@type="dynamic"`. Suppresses `isFullyFetched` and enables live segment updates on each pump tick (appending new segments and expiring old ones from the DVR window). |
+| `availability-start-time` | manifest | Unix epoch seconds from `MPD@availabilityStartTime`. Used by ManagedSourceBuffer as the wall-clock timestamp offset for live streams. |
+| `time-shift-buffer-depth` | manifest | DVR window depth in seconds (default 0 for pure-live). Defines the range of past segments available for seeking in a live stream. Set by the MPD parser with fallback to player's `time-shift-buffer-depth-default`. |
 | `debug` | user config | Enables the visual debug overlay showing id, bandwidth, state, init status, and timeline drift. |
 | `videl-state` | internal state | Slot state: `"next"` → `"active"` → absent. |
 | `videl-pinned` | internal state | Present when this representation is the ABR-pinned target (`forced-rep` on the parent matches this `id`). Drives the accent border in the quality menu row. |
@@ -388,7 +416,7 @@ Three categories govern the `videl-` prefix on attributes:
 |-----------|--------|-------------|
 | `url` | manifest (derived) | Absolute URL of the media segment. Stamped by the parser (SegmentList) or by the representation at activation time (SegmentTemplate / SegmentBase). |
 | `byte-range` | manifest (derived) | Optional `"start-end"` byte range sent as an HTTP `Range` header. Absent for full-file segments. |
-| `start-time` | manifest (computed) | Presentation start time of this segment in seconds. Used for seek-based segment selection and drift accounting. |
+| `start-time` | manifest (computed) | Segment start time in **wall-clock epoch seconds**. For live, these are epoch-based segment presentation times. For VOD, equals period start time + presentation offset within the period. Used for seek-based segment selection and drift accounting. |
 | `duration` | manifest (computed) | Declared duration of this segment in seconds. Used in `isBuffered` tolerance calculation and timeline drift tracking. |
 | `debug` | user config | Enables the visual debug block showing state, URL, start time, and duration. |
 | `videl-state` | internal state | Slot state: `"next"` (prefetch — fetch bytes into memory) → `"active"` (append bytes to SourceBuffer, fire `videl:done`) → absent (abort in-flight fetch). |
@@ -424,7 +452,7 @@ Three categories govern the `videl-` prefix on attributes:
 | `lifecycle` | `src` changes, seeks, connect/disconnect |
 | `mse` | MediaSource / SourceBuffer creation, duration, teardown |
 | `buffer` | `appendBuffer` calls (start, complete, error) |
-| `fetch` | Network requests for init and media segments |
+| `fetch` | Network requests for init and media segments; live segment updates (appends and expirations) |
 | `abr` | Rendition selection and switches |
 | `pump` | Pump tick decisions (buffer gating, no-ops, segment activation) |
 | `timeline` | Segment duration drift tracking and adjustments |

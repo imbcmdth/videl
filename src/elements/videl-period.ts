@@ -45,7 +45,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   debug    = false;
   menuOpen: string | null = null;
 
-  /** Last currentTime seen by videlUpdate — needed by track-select handler. */
+  /** Last currentWallTime seen by videlUpdate — needed by track-select handler. */
   #lastCurrentTime = 0;
 
   // ── Custom element lifecycle ──────────────────────────────────────────────
@@ -116,7 +116,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       return;
     }
 
-    this.#lastCurrentTime = state.currentTime;
+    this.#lastCurrentTime = state.currentWallTime;
 
     // Fan out to all active adaptation sets.
     for (const ads of this.#activeAdaptationSets) {
@@ -131,9 +131,9 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     // than the playhead reaching the boundary, giving the next period time to
     // start filling the shared SourceBuffers before they run dry.
     //
-    // FALLBACK: currentTime reaches the declared end. This fires if the primary
-    // trigger never arrives (e.g. a segment fetch stalls permanently), ensuring
-    // the player always advances rather than stalling at a broken period.
+    // FALLBACK: currentWallTime reaches the declared end. This fires if the
+    // primary trigger never arrives (e.g. a segment fetch stalls permanently),
+    // ensuring the player always advances rather than stalling at a broken period.
     //
     // Only fires for periods with a known duration; live / open-ended periods
     // never complete via either path.
@@ -142,7 +142,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       const lastSegmentBuffered =
         mediaAdsSets.length > 0 &&
         mediaAdsSets.every(ads => ads.isFullyFetched);
-      const playheadAtEnd = state.currentTime >= this.start + this.duration;
+      const playheadAtEnd = state.currentWallTime >= this.start + this.duration;
 
       if (lastSegmentBuffered || playheadAtEnd) {
         this.setAttribute('videl-done', '');

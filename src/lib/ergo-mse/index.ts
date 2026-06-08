@@ -13,6 +13,7 @@ export type { TextCodecClass } from './text-codec';
 export { classifyTextCodec, classifyTextMimeAndCodecs } from './text-codec';
 
 export { SyntheticTimeRanges } from './synthetic-time-ranges';
+export { OffsetTimeRanges } from './offset-time-ranges';
 
 export { ManagedSourceBuffer } from './managed-source-buffer';
 export { TextSourceBuffer } from './text-source-buffer';

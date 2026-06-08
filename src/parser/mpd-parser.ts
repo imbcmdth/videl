@@ -45,7 +45,11 @@ interface SegTemplate {
 // Entry point
 // ---------------------------------------------------------------------------
 
-export function parseMpd(xml: string, baseUrl: string): HTMLElement {
+export function parseMpd(
+  xml:     string,
+  baseUrl: string,
+  options: { tsbdDefault?: number } = {}
+): HTMLElement {
   const xmlDoc = new DOMParser().parseFromString(xml, 'text/xml');
 
   const parseErr = xmlDoc.querySelector('parsererror');
@@ -67,7 +71,7 @@ export function parseMpd(xml: string, baseUrl: string): HTMLElement {
     // baseUrl is not a valid absolute URL — ignore
   }
 
-  return buildPresentation(mpd, baseUrl, mpdQueryString);
+  return buildPresentation(mpd, baseUrl, mpdQueryString, options.tsbdDefault ?? 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +81,8 @@ export function parseMpd(xml: string, baseUrl: string): HTMLElement {
 function buildPresentation(
   mpd:            Element,
   baseUrl:        string,
-  mpdQueryString: string = ''
+  mpdQueryString: string = '',
+  tsbdDefault:    number = 0
 ): HTMLElement {
   const el = document.createElement('videl-presentation');
 
@@ -100,10 +105,24 @@ function buildPresentation(
   // Live / dynamic stream metadata passed down to representations so they can
   // compute segment availability from wall clock time.
   const isDynamic = type === 'dynamic';
+  // When timeShiftBufferDepth is absent, fall back to tsbdDefault (supplied by
+  // the player via `time-shift-buffer-depth-default`). Per ADR-0005 the
+  // product default is 0 (pure-live, no window), diverging from the ISO spec
+  // default of infinite. Consumers may override by setting the player attr.
+  const tsbdAttr = mpd.getAttribute('timeShiftBufferDepth');
+  const tsbd = isDynamic
+    ? (tsbdAttr !== null ? parseDuration(tsbdAttr) : tsbdDefault)
+    : 0;
   const liveCtx: LiveContext | undefined = isDynamic ? {
     availabilityStartTime: parseIsoDateTime(mpd.getAttribute('availabilityStartTime') ?? ''),
-    timeShiftBufferDepth:  parseDuration(mpd.getAttribute('timeShiftBufferDepth') ?? 'PT0S'),
+    timeShiftBufferDepth:  tsbd,
   } : undefined;
+
+  // No timeShiftBufferDepth on a live stream means no DVR window — seeking
+  // should be disabled and playback starts at the live edge mapped to time 0.
+  if (isDynamic && tsbd === 0) {
+    el.setAttribute('no-seek', '');
+  }
 
   // Track the running presentation-time cursor so periods without an explicit
   // @start inherit the cumulative offset of all preceding periods.
@@ -164,8 +183,20 @@ function buildPeriod(
 
   // Period@start is optional; when absent the period begins where the previous
   // one ended (cumulative). Only the first period without @start begins at 0.
+  // `start` here is the presentation-relative offset (seconds from period 0).
   const start = startStr ? parseDuration(startStr) : precedingStart;
-  el.setAttribute('start', String(start));
+
+  // For live streams, stamp wall-clock epoch seconds on the period element:
+  //   wallStart = availabilityStartTime + presentationOffset
+  // This is the epoch second at which this period's media begins. All downstream
+  // segment arithmetic uses this value directly, eliminating coordinate-space
+  // conversions in the element tree (ADR-0005 unified wall-clock model).
+  //
+  // For VOD, wallStart = 0 + start = start (wallAnchor = 0, identity mapping).
+  const wallStart = liveCtx
+    ? liveCtx.availabilityStartTime + start
+    : start;
+  el.setAttribute('start', String(wallStart));
 
   let periodDuration: number | undefined;
   if (durStr) {
@@ -187,7 +218,8 @@ function buildPeriod(
   for (const ads of children(period, 'AdaptationSet')) {
     el.appendChild(buildAdaptationSet(ads, {
       base, parentST: periodST, parentSL: periodSL ?? undefined,
-      periodStart: start, periodDuration, liveCtx,
+      // Pass wallStart so representations compute epoch-based segment times.
+      periodStart: wallStart, periodDuration, liveCtx,
       mpdQueryString: mpdQueryString ?? '', parentUrlQuery: childUrlQuery,
     }));
   }
@@ -199,7 +231,8 @@ function buildPeriod(
     el.insertBefore(buildNoneTextAds(), firstTextAds);
   }
 
-  // Advance the cursor: next period starts where this one ends (if known).
+  // Advance the cursor in presentation-relative space (used to compute the
+  // next period's presentation offset before converting to wall-clock).
   const nextStart = periodDuration !== undefined ? start + periodDuration : start;
   return { el, nextStart };
 }
@@ -392,9 +425,14 @@ function buildSegments(
   const { base, st, parentSL, periodStart, periodDuration, id, bandwidth, liveCtx, urlQuery } = ctx;
 
   // Stamp timestamp-offset = periodStart - pto/timescale on the representation
-  // element so videl-representation can set SourceBuffer.timestampOffset after
-  // the init segment is appended. This corrects presentation-time alignment for
-  // any stream with a non-zero @presentationTimeOffset, for all content types.
+  // element. For VOD (wallAnchor = 0, periodStart = presentation offset) this
+  // is read by videl-representation #startInit to correct presentation-time
+  // alignment for non-zero @presentationTimeOffset.
+  //
+  // For live, videl-representation #startInit ignores this attribute and instead
+  // uses the `availability-start-time` attribute as the wall-clock offset, so
+  // ManagedSourceBuffer can translate it correctly. The stamped value is unused
+  // for live but harmless.
   if (st) {
     const tsOffset = periodStart - (st.pto ?? 0) / (st.timescale ?? 1);
     if (tsOffset !== 0) {

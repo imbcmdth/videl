@@ -21,6 +21,7 @@
 
 import type { ISourceBuffer } from './i-source-buffer';
 import { SyntheticTimeRanges } from './synthetic-time-ranges';
+import { OffsetTimeRanges } from './offset-time-ranges';
 import { Fmp4TextDemuxer } from '../mp4/text-demuxer';
 import { classifyTextMimeAndCodecs } from './text-codec';
 import type { TextCodecClass } from './text-codec';
@@ -83,10 +84,22 @@ type QueueEntry =
 export class TextSourceBuffer implements ISourceBuffer {
   readonly textTrack: TextTrack;
 
-  timestampOffset = 0;
+  /**
+   * Wall-clock epoch second corresponding to video.currentTime = 0.
+   * Set by videl-player immediately after construction.
+   */
+  wallAnchor = 0;
+
+  // Wall-clock epoch offset supplied by callers (see timestampOffset setter).
+  #wallTimestampOffset = 0;
+
+  // Append window in player-time (currentTime) space.
+  // Stored pre-translated so #doAppend can filter without repeating the math.
+  #appendWindowStart = -Infinity;
+  #appendWindowEnd   =  Infinity;
 
   #updating       = false;
-  #bufferedRanges = new SyntheticTimeRanges();
+  #bufferedRanges = new SyntheticTimeRanges(); // in player-time (currentTime) space
 
   #demuxer        = new Fmp4TextDemuxer();
   #codecClass:    TextCodecClass = { kind: 'unknown' };
@@ -119,8 +132,67 @@ export class TextSourceBuffer implements ISourceBuffer {
     return this.#updating;
   }
 
+  /**
+   * Buffered time ranges in **wall-clock epoch seconds**.
+   * Internal ranges are in player-time (currentTime) space; shifted by
+   * +wallAnchor on the way out to match the ISourceBuffer contract.
+   */
   get buffered(): TimeRanges {
-    return this.#bufferedRanges as unknown as TimeRanges;
+    return new OffsetTimeRanges(this.#bufferedRanges as unknown as TimeRanges, this.wallAnchor);
+  }
+
+  /**
+   * Wall-clock epoch offset applied to media decode times.
+   * Getter returns the stored wall-clock value.
+   * Setter caches the value; internal operations use #effectiveOffset.
+   */
+  get timestampOffset(): number {
+    return this.#wallTimestampOffset;
+  }
+  set timestampOffset(wallOffset: number) {
+    this.#wallTimestampOffset = wallOffset;
+  }
+
+  /**
+   * Append window start in **wall-clock epoch seconds**.
+   * Stored internally as player-time (−wallAnchor) for efficient cue filtering.
+   */
+  get appendWindowStart(): number {
+    return this.#appendWindowStart === -Infinity
+      ? -Infinity
+      : this.#appendWindowStart + this.wallAnchor;
+  }
+  set appendWindowStart(wallValue: number) {
+    this.#appendWindowStart = wallValue === -Infinity
+      ? -Infinity
+      : wallValue - this.wallAnchor;
+  }
+
+  /**
+   * Append window end in **wall-clock epoch seconds**.
+   * Stored internally as player-time (−wallAnchor) for efficient cue filtering.
+   */
+  get appendWindowEnd(): number {
+    return this.#appendWindowEnd === Infinity
+      ? Infinity
+      : this.#appendWindowEnd + this.wallAnchor;
+  }
+  set appendWindowEnd(wallValue: number) {
+    this.#appendWindowEnd = wallValue === Infinity
+      ? Infinity
+      : wallValue - this.wallAnchor;
+  }
+
+  /**
+   * Always 'segments' — text cue times are always absolute.
+   * Setter is a no-op (required by ISourceBuffer).
+   */
+  get mode(): 'segments' | 'sequence' {
+    return 'segments';
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  set mode(_value: 'segments' | 'sequence') {
+    // no-op: text cue times are always absolute presentation times
   }
 
   async append(data: ArrayBuffer | ArrayBufferView): Promise<void> {
@@ -130,9 +202,16 @@ export class TextSourceBuffer implements ISourceBuffer {
     });
   }
 
+  /**
+   * Remove cues in [start, end) in **wall-clock epoch seconds**.
+   * Translates to player-time by subtracting wallAnchor before operating
+   * on the TextTrack and bufferedRanges (which are in currentTime space).
+   */
   async remove(start: number, end: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.#queue.push({ kind: 'remove', start, end, resolve, reject });
+      const a = start - this.wallAnchor;
+      const b = end === Infinity ? Infinity : end - this.wallAnchor;
+      this.#queue.push({ kind: 'remove', start: a, end: b, resolve, reject });
       this.#pump();
     });
   }
@@ -207,6 +286,19 @@ export class TextSourceBuffer implements ISourceBuffer {
     });
   }
 
+  // ── Internal helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Effective timestamp offset in player-time (currentTime) space.
+   * = wallTimestampOffset − wallAnchor
+   *
+   * This is what gets added to media PTS values to produce VTTCue times, which
+   * the browser matches against video.currentTime (player-time, not wall-clock).
+   */
+  get #effectiveOffset(): number {
+    return this.#wallTimestampOffset - this.wallAnchor;
+  }
+
   // ── Internal operations ───────────────────────────────────────────────────
 
   #doAppend(data: ArrayBuffer | ArrayBufferView): void {
@@ -261,12 +353,15 @@ export class TextSourceBuffer implements ISourceBuffer {
     let maxEnd = -Infinity;
 
     for (const sample of textSamples) {
-      const presentationTime = sample.pts + this.timestampOffset;
+      const presentationTime = sample.pts + this.#effectiveOffset;
       const endTime          = presentationTime + sample.duration;
 
       if (this.#codecClass.kind === 'wvtt') {
         // wvtt: timing comes entirely from the fMP4 container (tfdt + trun).
         // The vttc payload carries only the cue text/settings, no timestamps.
+        if (presentationTime < this.#appendWindowStart || presentationTime >= this.#appendWindowEnd) {
+          continue; // outside append window
+        }
         this.#removeCuesInRange(presentationTime, endTime);
         const cue = parseWvttSample(sample.data);
         if (cue) {
@@ -287,13 +382,16 @@ export class TextSourceBuffer implements ISourceBuffer {
         // relative to the sample PTS. DASH-IF and real-world encoders write
         // wall-clock presentation times in the XML; adding sample.pts would
         // shift every cue later by the segment's position in the timeline.
-        // Only timestampOffset is applied (period start – pto/timescale).
+        // Only effectiveOffset is applied (wall timestampOffset − wallAnchor).
         const cues = parseStppSample(sample.data);
         for (const c of cues) {
-          const cueStart = c.begin + this.timestampOffset;
-          const cueEnd   = c.end   + this.timestampOffset;
+          const cueStart = c.begin + this.#effectiveOffset;
+          const cueEnd   = c.end   + this.#effectiveOffset;
           if (cueStart >= cueEnd) {
             continue;
+          }
+          if (cueStart < this.#appendWindowStart || cueStart >= this.#appendWindowEnd) {
+            continue; // outside append window
           }
           this.#removeCuesInRange(cueStart, cueEnd);
           const vtCue = new VTTCue(cueStart, cueEnd, c.payload);
@@ -337,10 +435,13 @@ export class TextSourceBuffer implements ISourceBuffer {
     let maxEnd = -Infinity;
 
     for (const c of cues) {
-      const startTime = c.startTime + this.timestampOffset;
-      const endTime   = c.endTime   + this.timestampOffset;
+      const startTime = c.startTime + this.#effectiveOffset;
+      const endTime   = c.endTime   + this.#effectiveOffset;
       if (startTime >= endTime) {
         continue;
+      }
+      if (startTime < this.#appendWindowStart || startTime >= this.#appendWindowEnd) {
+        continue; // outside append window
       }
 
       this.#removeCuesInRange(startTime, endTime);
@@ -386,10 +487,13 @@ export class TextSourceBuffer implements ISourceBuffer {
     let maxEnd = -Infinity;
 
     for (const c of cues) {
-      const startTime = c.begin + this.timestampOffset;
-      const endTime   = c.end   + this.timestampOffset;
+      const startTime = c.begin + this.#effectiveOffset;
+      const endTime   = c.end   + this.#effectiveOffset;
       if (startTime >= endTime) {
         continue;
+      }
+      if (startTime < this.#appendWindowStart || startTime >= this.#appendWindowEnd) {
+        continue; // outside append window
       }
 
       this.#removeCuesInRange(startTime, endTime);
