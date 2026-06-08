@@ -34,7 +34,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
      * no menu open. Purely a visual-composition concern — independent of
      * `videl-state` (ADR-0002).
      */
-    menuOpen: { type: String, attribute: 'menu-open' }
+    menuOpen: { type: String, attribute: 'videl-menu-open' }
   };
 
   periodId = '';
@@ -45,7 +45,6 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   debug    = false;
   menuOpen: string | null = null;
 
-  #doneEmitted     = false;
   /** Last currentTime seen by videlUpdate — needed by track-select handler. */
   #lastCurrentTime = 0;
 
@@ -94,10 +93,10 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       this.#preloadAll();
     } else if (value === null) {
       // Reset completion flag so re-activation works correctly.
-      this.#doneEmitted = false;
+      this.removeAttribute('videl-done');
       // Close any open menu — a deactivated period must not keep a popup open.
-      if (this.hasAttribute('menu-open')) {
-        this.removeAttribute('menu-open');
+      if (this.hasAttribute('videl-menu-open')) {
+        this.removeAttribute('videl-menu-open');
       }
     }
   }
@@ -138,7 +137,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     //
     // Only fires for periods with a known duration; live / open-ended periods
     // never complete via either path.
-    if (!this.#doneEmitted && this.duration !== null) {
+    if (!this.hasAttribute('videl-done') && this.duration !== null) {
       const mediaAdsSets = this.#activeAdaptationSets.filter(ads => ads.contentType === 'video' || ads.contentType === 'audio');
       const lastSegmentBuffered =
         mediaAdsSets.length > 0 &&
@@ -146,7 +145,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       const playheadAtEnd = state.currentTime >= this.start + this.duration;
 
       if (lastSegmentBuffered || playheadAtEnd) {
-        this.#doneEmitted = true;
+        this.setAttribute('videl-done', '');
         this.dispatchEvent(new CustomEvent('videl:done', {
           bubbles: true,
           composed: true,
@@ -308,11 +307,11 @@ export class VidelPeriod extends PickNMixin(LitElement) {
         ::slotted(videl-adaptation-set) { display: none !important; }
 
         /* Reveal matching group when menu is open. */
-        :host([menu-open="audio"])
+        :host([videl-menu-open="audio"])
           ::slotted(videl-adaptation-set[content-type="audio"])          { display: block !important; }
-        :host([menu-open="text"])
+        :host([videl-menu-open="text"])
           ::slotted(videl-adaptation-set[content-type="text"])           { display: block !important; }
-        :host([menu-open="quality"])
+        :host([videl-menu-open="quality"])
           ::slotted(videl-adaptation-set[content-type="video"][videl-state="active"]) { display: block !important; }
 
         /* ── Menu popup ───────────────────────────────────────────── */
@@ -324,7 +323,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
          * player's right edge.
          */
         .menu { display: none; }
-        :host([menu-open]) .menu {
+        :host([videl-menu-open]) .menu {
           display: block;
           position: absolute;
           bottom: calc(100% + 4px);

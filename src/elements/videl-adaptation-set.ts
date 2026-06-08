@@ -82,8 +82,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     return this.#activeRepresentation?.isFullyFetched ?? false;
   }
 
-  #activeMimeAndCodecs: string | null = null;
-
   // ── Custom element lifecycle ──────────────────────────────────────────────
 
   connectedCallback(): void {
@@ -147,8 +145,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
         rep.sourceBuffer = this.#sourceBuffer;
       }
     } else if (value === null) {
-      this.#sourceBuffer        = null;
-      this.#activeMimeAndCodecs = null;
+      this.#sourceBuffer = null;
+      this.removeAttribute('videl-active-codecs');
     }
   }
 
@@ -226,10 +224,11 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       `${targetMime}; codecs="${targetCodecs}"` :
       targetMime;
 
-    if (prev && this.#activeMimeAndCodecs && this.#activeMimeAndCodecs !== newMimeAndCodecs) {
+    const prevMimeAndCodecs = this.getAttribute('videl-active-codecs');
+    if (prev && prevMimeAndCodecs && prevMimeAndCodecs !== newMimeAndCodecs) {
       trace(this, 'mse', 'change-type', {
         contentType: this.contentType,
-        from: this.#activeMimeAndCodecs,
+        from: prevMimeAndCodecs,
         to: newMimeAndCodecs
       });
       try {
@@ -257,7 +256,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     target.sourceBuffer = this.#sourceBuffer;
     this.activateChild(target);
-    this.#activeMimeAndCodecs = newMimeAndCodecs;
+    this.setAttribute('videl-active-codecs', newMimeAndCodecs);
 
     if (fromId !== null) {
       this.dispatchEvent(new CustomEvent('videl:representation:switched', {
@@ -277,14 +276,14 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     }
   }
 
-  /** Stamp / remove the `pinned` attribute on representations to match forcedRepId. */
+  /** Stamp / remove the `videl-pinned` attribute on representations to match forcedRepId. */
   #updatePinnedAttrs(): void {
     for (const rep of this.#childRepresentations) {
       const isForced = rep.getAttribute('id') === this.forcedRepId && !!this.forcedRepId;
       if (isForced) {
-        rep.setAttribute('pinned', '');
+        rep.setAttribute('videl-pinned', '');
       } else          {
-        rep.removeAttribute('pinned');
+        rep.removeAttribute('videl-pinned');
       }
     }
   }

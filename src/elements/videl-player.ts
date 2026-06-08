@@ -124,7 +124,7 @@ export class VidelPlayer extends HTMLElement {
         }
         /* Collapsed (user) or unavailable (<2 presentations): no playlist column. */
         :host([playlist-collapsed]),
-        :host([no-playlist]) {
+        :host([videl-no-playlist]) {
           --videl-playlist-width: 0px;
         }
         .layout {
@@ -155,7 +155,7 @@ export class VidelPlayer extends HTMLElement {
         video::-webkit-media-text-track-container {
           bottom: 80px;
         }
-        :host([user-inactive]) video::-webkit-media-text-track-container {
+        :host([videl-user-inactive]) video::-webkit-media-text-track-container {
           bottom: 20px;
         }
         .playlist {
@@ -171,7 +171,7 @@ export class VidelPlayer extends HTMLElement {
           box-sizing: border-box;
         }
         :host([playlist-collapsed]) .playlist,
-        :host([no-playlist]) .playlist {
+        :host([videl-no-playlist]) .playlist {
           padding: 0;
           border-left: none;
         }
@@ -219,7 +219,7 @@ export class VidelPlayer extends HTMLElement {
          * existing .layout transition) and the cursor disappears. Any pointer
          * activity removes the attribute immediately.
          */
-        :host([user-inactive]) {
+        :host([videl-user-inactive]) {
           cursor: none;
           --videl-playlist-width: 0px;
         }
@@ -251,9 +251,9 @@ export class VidelPlayer extends HTMLElement {
   #refreshPlaylistChrome(): void {
     const count = this.#childPresentations.length;
     if (count >= 2) {
-      this.removeAttribute('no-playlist');
+      this.removeAttribute('videl-no-playlist');
     } else            {
-      this.setAttribute('no-playlist', '');
+      this.setAttribute('videl-no-playlist', '');
     }
   }
 
@@ -536,9 +536,9 @@ export class VidelPlayer extends HTMLElement {
         old.removeAttribute('videl-state');
         this.removeChild(old);
       }
-      // Mark as auto-generated so consumers can target `videl-presentation[generated]`
+      // Mark as auto-generated so consumers can target `videl-presentation[videl-generated]`
       // in CSS to style (or hide) it differently from declarative playlist cards.
-      presEl.setAttribute('generated', '');
+      presEl.setAttribute('videl-generated', '');
       this.appendChild(presEl);
 
       if (this.hasAttribute('debug')) {
@@ -661,13 +661,13 @@ export class VidelPlayer extends HTMLElement {
   #teardownPresentation(): void {
     if (this.#activePresentation) {
       this.#activePresentation.removeAttribute('videl-state');
-      this.#activePresentation.removeAttribute('user-inactive');
+      this.#activePresentation.removeAttribute('videl-user-inactive');
       // Return it to the default (playlist) slot.
       this.#activePresentation.removeAttribute('slot');
       this.#activePresentation = null;
     }
     this.#clearInactivityTimer();
-    this.removeAttribute('user-inactive');
+    this.removeAttribute('videl-user-inactive');
     this.#updateMirror();
   }
 
@@ -893,8 +893,8 @@ export class VidelPlayer extends HTMLElement {
   /** Start (or restart) the 5-second inactivity timer and mark user active. */
   #resetInactivityTimer(): void {
     this.#clearInactivityTimer();
-    this.removeAttribute('user-inactive');
-    this.#activePresentation?.removeAttribute('user-inactive');
+    this.removeAttribute('videl-user-inactive');
+    this.#activePresentation?.removeAttribute('videl-user-inactive');
     // Only run the timer while a presentation is active (playing).
     if (this.#activePresentation) {
       this.#inactivityTimer = setTimeout(this.#onInactivityTimeout, VidelPlayer.#INACTIVITY_MS);
@@ -903,8 +903,8 @@ export class VidelPlayer extends HTMLElement {
 
   #onInactivityTimeout = (): void => {
     this.#inactivityTimer = null;
-    this.setAttribute('user-inactive', '');
-    this.#activePresentation?.setAttribute('user-inactive', '');
+    this.setAttribute('videl-user-inactive', '');
+    this.#activePresentation?.setAttribute('videl-user-inactive', '');
   };
 
   /** Any pointer movement or press inside the player restores active state. */
@@ -938,6 +938,7 @@ export class VidelPlayer extends HTMLElement {
       if (bytes > rejectBytes && fetchMs >= rejectMs) {
         const measuredBps = (bytes * 8) / (fetchMs / 1000);
         this.#bandwidth = 0.666 * this.#bandwidth + 0.334 * measuredBps;
+        this.setAttribute('videl-bandwidth', String(Math.round(this.#bandwidth)));
         trace(this, 'bandwidth', 'update', { bytes, fetchMs, measuredBps: Math.round(measuredBps), bandwidth: Math.round(this.#bandwidth) });
       }
       return;

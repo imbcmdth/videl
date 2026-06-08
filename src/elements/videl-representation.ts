@@ -133,7 +133,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
     slot: { type: String,  reflect: true },
     /** Set by the parent adaptation-set when this rep is manually pinned. */
-    pinned: { type: Boolean },
+    pinned: { type: Boolean, attribute: 'videl-pinned' },
     debug: { type: Boolean }
   };
 
@@ -181,7 +181,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     this.#initController?.abort();
     this.#initController = null;
     this.#initPromise    = null;
-    this.#initAppended   = false;
+    this.removeAttribute('videl-init-appended');
     // A new SourceBuffer means the buffer has been cleared; the old fetch
     // history, drift offset, and position tracking are no longer valid.
     this.#fetchedSegments.clear();
@@ -195,7 +195,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
   // ── Init segment state ────────────────────────────────────────────────────
 
-  #initAppended   = false;
   #initController: AbortController | null = null;
   #initPromise:    Promise<void> | null   = null;
 
@@ -258,7 +257,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       // For live streams, compute the timestamp offset exactly once — before
       // #startInit so the computed value is applied when the init append
       // completes and sourceBuffer.timestampOffset is set.
-      if (this.live && !this.#initAppended) {
+      if (this.live && !this.hasAttribute('videl-init-appended')) {
         this.#computeLiveTimestampOffset();
       }
       // Populate segments first (sync for SegmentTemplate/SegmentBase-no-sidx,
@@ -272,7 +271,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       this.#initController = null;
       this.#initPromise    = null;
       // Reset so the init segment is always re-sent on the next activation.
-      this.#initAppended = false;
+      this.removeAttribute('videl-init-appended');
       // Clear fetch history, drift, and position tracking — fresh activation.
       this.#fetchedSegments.clear();
       this.#timelineDrift   = 0;
@@ -283,7 +282,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   // ── Pump method ───────────────────────────────────────────────────────────
 
   videlUpdate(state: PlayerState): void {
-    if (!this.#initAppended) {
+    if (!this.hasAttribute('videl-init-appended')) {
       return;
     }
     if (this.getAttribute('videl-state') !== 'active') {
@@ -812,7 +811,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   }
 
   #startInit(): void {
-    if (this.#initAppended) {
+    if (this.hasAttribute('videl-init-appended')) {
       return;
     }
     if (this.#initPromise)  {
@@ -826,7 +825,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       // whole-file segment carries its own moov, so there is no separate init
       // segment to fetch. Mark init complete so the pump appends it directly.
       if (this.#childSegments.length > 0) {
-        this.#initAppended = true;
+        this.setAttribute('videl-init-appended', '');
       }
       return;
     }
@@ -835,7 +834,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     this.#initController = new AbortController();
     this.#initPromise = this.#doFetchInit(this.#initController.signal)
       .then(() => {
-        this.#initAppended = true;
+        this.setAttribute('videl-init-appended', '');
         trace(this, 'buffer', 'init-append-complete', { url: this.initializationUrl });
         // Apply presentation-time offset so the SourceBuffer (real or fake)
         // maps media decode times to the correct MSE timeline position.
@@ -958,7 +957,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
           color: #fff;
         }
         /* Pinned (ABR disabled, this rep is forced): accent left border. */
-        :host([pinned]) .q {
+        :host([videl-pinned]) .q {
           border-left: 2px solid #4f9cf9;
           padding-left: 6px;
         }
@@ -978,7 +977,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
           id=<em>${this.repId}</em>
           bw=<em>${this.bandwidth}</em>
           state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          init=<em>${this.#initAppended ? 'done' : 'pending'}</em>
+          init=<em>${this.hasAttribute('videl-init-appended') ? 'done' : 'pending'}</em>
           drift=<em>${this.#timelineDrift.toFixed(3)}s</em>
         </div>
       ` : nothing}
