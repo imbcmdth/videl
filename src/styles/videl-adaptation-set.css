@@ -1,0 +1,35 @@
+:host { display: block; box-sizing: border-box; }
+
+/* ── Track row (audio / text) ─────────────────────────────── */
+.track {
+  padding: 6px 8px;
+  margin: 1px 0;
+  color: #ddd;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: default;
+}
+/* Inactive audio and text tracks are selectable. */
+:host([content-type="audio"]:not([videl-state="active"])) .track,
+:host([content-type="text"]:not([videl-state="active"])) .track {
+  cursor: pointer;
+}
+:host([videl-state="active"]) .track {
+  background: rgba(79, 156, 249, 0.25);
+  color: #fff;
+}
+/* For video the row is suppressed — the representations ARE the menu. */
+:host([content-type="video"]) .track { display: none; }
+
+/*
+ * Representations are technical children: hidden by default. For the
+ * video adaptation set they form the quality list and are revealed.
+ * (important flag for the same ::slotted vs :host cascade reason.)
+ */
+::slotted(videl-representation) { display: none !important; }
+:host([content-type="video"]) ::slotted(videl-representation) {
+  display: block !important;
+}

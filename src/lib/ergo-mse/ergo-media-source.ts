@@ -89,6 +89,7 @@ export class ErgoMediaSource {
     videoEl.src   = url;
 
     return new Promise<void>((resolve, reject) => {
+      let cleanup: () => void;
       const onOpen = (): void => {
         cleanup();
         resolve();
@@ -102,7 +103,7 @@ export class ErgoMediaSource {
         reject(new DOMException('Aborted', 'AbortError'));
       };
 
-      const cleanup = (): void => {
+      cleanup = (): void => {
         this.#ms.removeEventListener('sourceopen', onOpen);
         this.#ms.removeEventListener('error', onErr);
         signal?.removeEventListener('abort', onAbort);

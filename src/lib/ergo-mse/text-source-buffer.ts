@@ -158,14 +158,14 @@ export class TextSourceBuffer implements ISourceBuffer {
    * Stored internally as player-time (−wallAnchor) for efficient cue filtering.
    */
   get appendWindowStart(): number {
-    return this.#appendWindowStart === -Infinity
-      ? -Infinity
-      : this.#appendWindowStart + this.wallAnchor;
+    return this.#appendWindowStart === -Infinity ?
+      -Infinity :
+      this.#appendWindowStart + this.wallAnchor;
   }
   set appendWindowStart(wallValue: number) {
-    this.#appendWindowStart = wallValue === -Infinity
-      ? -Infinity
-      : wallValue - this.wallAnchor;
+    this.#appendWindowStart = wallValue === -Infinity ?
+      -Infinity :
+      wallValue - this.wallAnchor;
   }
 
   /**
@@ -173,14 +173,14 @@ export class TextSourceBuffer implements ISourceBuffer {
    * Stored internally as player-time (−wallAnchor) for efficient cue filtering.
    */
   get appendWindowEnd(): number {
-    return this.#appendWindowEnd === Infinity
-      ? Infinity
-      : this.#appendWindowEnd + this.wallAnchor;
+    return this.#appendWindowEnd === Infinity ?
+      Infinity :
+      this.#appendWindowEnd + this.wallAnchor;
   }
   set appendWindowEnd(wallValue: number) {
-    this.#appendWindowEnd = wallValue === Infinity
-      ? Infinity
-      : wallValue - this.wallAnchor;
+    this.#appendWindowEnd = wallValue === Infinity ?
+      Infinity :
+      wallValue - this.wallAnchor;
   }
 
   /**
@@ -190,7 +190,7 @@ export class TextSourceBuffer implements ISourceBuffer {
   get mode(): 'segments' | 'sequence' {
     return 'segments';
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   set mode(_value: 'segments' | 'sequence') {
     // no-op: text cue times are always absolute presentation times
   }

@@ -1,3 +1,4 @@
+import playerCss from '../styles/videl-player.css';
 import { parseMpd } from '../parser/mpd-parser';
 import { ErgoMediaSource, TextSourceBuffer } from '../lib/ergo-mse';
 import { OffsetTimeRanges } from '../lib/ergo-mse/offset-time-ranges';
@@ -45,7 +46,7 @@ import { VidelPresentation } from './videl-presentation';
  *  `playbackRate` (get/set) — all delegate to the internal `<video>`.
  */
 export class VidelPlayer extends HTMLElement {
-  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'debug', 'time-shift-buffer-depth-default'];
+  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'time-shift-buffer-depth-default'];
 
   // ── Internal DOM ──────────────────────────────────────────────────────────
 
@@ -132,118 +133,7 @@ export class VidelPlayer extends HTMLElement {
     // The playlist column collapses automatically via the user-inactivity
     // mechanism — there is no manual toggle button.
     this.#shadow.innerHTML = `
-      <style>
-        :host {
-          display: inline-block;
-          position: relative;
-          overflow: hidden;
-          /* Fundamental stage background: the video area is black before/behind
-             frames. Consumers can override on the host element if desired. */
-          background: #000;
-          --videl-playlist-width: 260px;
-        }
-        /* Collapsed (user) or unavailable (<2 presentations): no playlist column. */
-        :host([playlist-collapsed]),
-        :host([videl-no-playlist]) {
-          --videl-playlist-width: 0px;
-        }
-        .layout {
-          position: absolute;
-          inset: 0;
-          display: grid;
-          grid-template-columns: 1fr var(--videl-playlist-width);
-          /* Fill the full container height; without an explicit row the single
-             auto row would size to the (absolute-only) stage content = 0, and
-             the stage would inherit the playlist cards' height instead. */
-          grid-template-rows: minmax(0, 1fr);
-          transition: grid-template-columns 0.2s ease;
-        }
-        .stage {
-          position: relative;
-          min-width: 0;
-          min-height: 0;
-          overflow: hidden;
-          background: #000;
-        }
-        video {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          display: block;
-        }
-        video::-webkit-media-text-track-container {
-          bottom: 80px;
-        }
-        :host([videl-user-inactive]) video::-webkit-media-text-track-container {
-          bottom: 20px;
-        }
-        .playlist {
-          min-height: 0;
-          overflow-y: auto;
-          overflow-x: hidden;
-          background: #0d0d0d;
-          border-left: 1px solid #222;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          padding: 8px;
-          box-sizing: border-box;
-        }
-        :host([playlist-collapsed]) .playlist,
-        :host([videl-no-playlist]) .playlist {
-          padding: 0;
-          border-left: none;
-        }
-        /* Cards in the default (playlist) slot. The stage-slotted active
-           presentation is excluded because slotted() can't be matched here for
-           the named slot — its own :host([videl-state=active]) rule governs it. */
-        ::slotted(videl-presentation) {
-          width: 100%;
-          flex: 0 0 auto;
-        }
-        /* "Now playing" mirror card — occupies the active presentation's slot
-           position in the playlist (the real one is the stage overlay).
-           The card-content frame mirrors videl-presentation's .card-frame so
-           the cloned content (plain <strong>/<small> tags) renders identically:
-           the frame container provides the gradient, padding, bottom-alignment
-           and inherited colour/font, and the tags carry their own hierarchy.
-           Shadow CSS can't target the cloned descendants directly, so all text
-           styling here is inherited. */
-        ::slotted(.videl-now-playing) {
-          position: relative;
-          width: 100%;
-          flex: 0 0 auto;
-          aspect-ratio: 16 / 9;
-          overflow: hidden;
-          border: 2px solid #4f9cf9;
-          box-shadow: 0 0 0 1px rgba(79, 156, 249, 0.4);
-          display: flex;
-          flex-direction: column;
-          justify-content: flex-end;
-          gap: 2px;
-          padding: 8px;
-          box-sizing: border-box;
-          background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), #000;
-          color: #fff;
-          font-family: ui-monospace, monospace;
-          font-size: 11px;
-          line-height: 1.3;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-        }
-
-        /* ── User-inactivity: immersive mode ─────────────────────── */
-        /*
-         * When the pointer leaves or idles for 5 s, [user-inactive] is set on
-         * the host. The playlist column collapses (reusing the same CSS var and
-         * existing .layout transition) and the cursor disappears. Any pointer
-         * activity removes the attribute immediately.
-         */
-        :host([videl-user-inactive]) {
-          cursor: none;
-          --videl-playlist-width: 0px;
-        }
-      </style>
+      <style>${playerCss}</style>
       <div class="layout">
         <div class="stage"><slot name="stage"></slot></div>
         <aside class="playlist"><slot></slot></aside>
@@ -397,8 +287,6 @@ export class VidelPlayer extends HTMLElement {
       this.#bufferAhead = Math.max(1, Number(value ?? 30));
     } else if (name === 'time-shift-buffer-depth-default') {
       this.#tsbdDefault = Math.max(0, Number(value ?? 0));
-    } else if (name === 'debug') {
-      this.#propagateDebug(value !== null);
     }
   }
 
@@ -562,10 +450,6 @@ export class VidelPlayer extends HTMLElement {
       // in CSS to style (or hide) it differently from declarative playlist cards.
       presEl.setAttribute('videl-generated', '');
       this.appendChild(presEl);
-
-      if (this.hasAttribute('debug')) {
-        this.#propagateDebug(true);
-      }
 
       await this.#setupMse(presEl, signal);
       if (wasPlaying) {
@@ -796,18 +680,18 @@ export class VidelPlayer extends HTMLElement {
 
     const state: PlayerState = {
       currentWallTime,
-      wallAnchor:  this.#wallAnchor,
+      wallAnchor: this.#wallAnchor,
       currentTime: rawTime, // @deprecated — logging only
-      buffered:    new OffsetTimeRanges(this.#video.buffered, this.#wallAnchor),
-      bandwidth:   this.#bandwidth,
+      buffered: new OffsetTimeRanges(this.#video.buffered, this.#wallAnchor),
+      bandwidth: this.#bandwidth,
       playbackRate: Math.max(this.#video.playbackRate, 0.01),
       bufferAhead: this.#bufferAhead,
       sourceBuffered,
-      paused:  this.#video.paused,
-      volume:  this.#video.volume,
-      muted:   this.#video.muted,
+      paused: this.#video.paused,
+      volume: this.#video.volume,
+      muted: this.#video.muted,
       seekableStart,
-      seekableEnd,
+      seekableEnd
     };
     if (this.#activePresentation instanceof VidelPresentation) {
       this.#activePresentation.videlUpdate(state);
@@ -1312,18 +1196,6 @@ export class VidelPlayer extends HTMLElement {
       this.#startPump();
     }
   };
-
-  // ── Debug propagation ─────────────────────────────────────────────────────
-
-  #propagateDebug(on: boolean): void {
-    const sel = [
-      'videl-presentation', 'videl-period', 'videl-adaptation-set',
-      'videl-representation', 'videl-segment'
-    ].join(',');
-    for (const el of this.querySelectorAll(sel)) {
-      on ? el.setAttribute('debug', '') : el.removeAttribute('debug');
-    }
-  }
 }
 
 customElements.define('videl-player', VidelPlayer);

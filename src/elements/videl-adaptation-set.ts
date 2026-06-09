@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, css, unsafeCSS } from 'lit';
+import adaptationSetCss from '../styles/videl-adaptation-set.css';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from '../lib/ergo-mse';
@@ -24,6 +25,8 @@ import { trace } from '../trace';
  *   videl-state removed  → clear SourceBuffer reference; cascade deactivation.
  */
 export class VidelAdaptationSet extends PickOneMixin(LitElement) {
+  static styles = css`${unsafeCSS(adaptationSetCss)}`;
+
   static properties = {
     contentType: { type: String,  attribute: 'content-type' },
     mimeType: { type: String,  attribute: 'mime-type' },
@@ -43,8 +46,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
      * MPD parser. When it becomes active, the shared TextSourceBuffer is
      * hidden rather than shown. Has no meaning on non-text ADS elements.
      */
-    videlTextNone: { type: Boolean, attribute: 'videl-text-none' },
-    debug: { type: Boolean }
+    videlTextNone: { type: Boolean, attribute: 'videl-text-none' }
   };
 
   contentType     = '';
@@ -56,7 +58,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   abrSafetyFactor = 0.8;
   forcedRepId     = '';
   videlTextNone   = false;
-  debug           = false;
 
   /** Last full PlayerState — used for immediate re-selection after rep removal. */
   #lastState: PlayerState | null = null;
@@ -388,59 +389,12 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     const label = this.label || this.contentType || 'track';
 
     return html`
-      <style>
-        :host { display: block; box-sizing: border-box; }
-
-        /* ── Track row (audio / text) ─────────────────────────────── */
-        .track {
-          padding: 6px 8px;
-          margin: 1px 0;
-          color: #ddd;
-          font-family: ui-monospace, monospace;
-          font-size: 12px;
-          display: flex;
-          justify-content: space-between;
-          gap: 8px;
-          cursor: default;
-        }
-        /* Inactive audio and text tracks are selectable. */
-        :host([content-type="audio"]:not([videl-state="active"])) .track,
-        :host([content-type="text"]:not([videl-state="active"])) .track {
-          cursor: pointer;
-        }
-        :host([videl-state="active"]) .track {
-          background: rgba(79, 156, 249, 0.25);
-          color: #fff;
-        }
-        /* For video the row is suppressed — the representations ARE the menu. */
-        :host([content-type="video"]) .track { display: none; }
-
-        /*
-         * Representations are technical children: hidden by default. For the
-         * video adaptation set they form the quality list and are revealed.
-         * (important flag for the same ::slotted vs :host cascade reason.)
-         */
-        ::slotted(videl-representation) { display: none !important; }
-        :host([content-type="video"]) ::slotted(videl-representation) {
-          display: block !important;
-        }
-      </style>
-
       <div class="track" title="${label}" aria-label="${label}"
            @click=${this.#onTrackClick}>
         <span>${label}</span>
         <span>${active ? '✓' : ''}</span>
       </div>
       <slot></slot>
-
-      ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #8a8;padding:4px;margin-top:4px;background:rgba(0,0,0,0.6);color:#fff">
-          <strong>videl-adaptation-set</strong>
-          type=<em>${this.contentType}</em>
-          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          abr=<em>${this.abrSafetyFactor}</em>
-        </div>
-      ` : nothing}
     `;
   }
 }

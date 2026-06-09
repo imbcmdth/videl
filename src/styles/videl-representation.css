@@ -1,0 +1,24 @@
+:host { display: block; box-sizing: border-box; }
+.q {
+  padding: 6px 8px;
+  margin: 1px 0;
+  color: #ddd;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+:host([videl-state="active"]) .q {
+  background: rgba(79, 156, 249, 0.25);
+  color: #fff;
+}
+/* Pinned (ABR disabled, this rep is forced): accent left border. */
+:host([videl-pinned]) .q {
+  border-left: 2px solid #4f9cf9;
+  padding-left: 6px;
+}
+.q .detail { color: #9ab; }
+::slotted(videl-segment) { display: none !important; }

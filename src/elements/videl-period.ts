@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, nothing, css, unsafeCSS } from 'lit';
+import periodCss from '../styles/videl-period.css';
 import { PickNMixin } from '../mixins/pick-n-mixin';
 import type { PlayerState } from '../player-state';
 import { VidelAdaptationSet } from './videl-adaptation-set';
@@ -21,12 +22,13 @@ import { VidelAdaptationSet } from './videl-adaptation-set';
  * `duration` attribute is absent (open-ended / live period).
  */
 export class VidelPeriod extends PickNMixin(LitElement) {
+  static styles = css`${unsafeCSS(periodCss)}`;
+
   static properties = {
     periodId: { type: String,  attribute: 'period-id' },
     start: { type: Number },
     duration: { type: Number },
     slot: { type: String,  reflect: true },
-    debug: { type: Boolean },
     /**
      * Which informational menu is currently revealed: `"audio"`, `"text"`,
      * or `"quality"`. Set by the parent `<videl-presentation>` control bar
@@ -42,7 +44,6 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   /** Absent (null) = open-ended period — `videl:done` will never fire. */
   duration: number | null = null;
   slot = '';
-  debug    = false;
   menuOpen: string | null = null;
 
   /** Last currentWallTime seen by videlUpdate — needed by track-select handler. */
@@ -280,89 +281,10 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     const title = this.menuOpen ? (titles[this.menuOpen] ?? this.menuOpen) : '';
 
     return html`
-      <style>
-        /*
-         * The period renders as a proportional seekbar segment.
-         * flex-grow is set directly on the host element (style.flexGrow) so
-         * it can carry a dynamic numeric value — CSS cannot do this from
-         * ::slotted() rules on the containing shadow.
-         *
-         * NOTE: no position:relative here. Keeping the host position:static
-         * means the menu popup's position:absolute walks up to .controls
-         * (the nearest positioned ancestor in the layout tree), so the popup
-         * appears above the whole control bar regardless of where the segment
-         * is in the seekbar.
-         */
-        :host {
-          display: block;
-          height: 100%;
-          background: rgba(255, 255, 255, 0.4);
-          /*background: rgba(255, 255, 255, 0.2);*/
-          transition: background 0.15s;
-        }
-        /*:host([videl-state="active"]) { background: rgba(255, 255, 255, 0.9); }
-        :host([videl-state="next"])   { background: rgba(255, 255, 255, 0.4); }*/
-
-        /* Adaptation sets are hidden by default. */
-        ::slotted(videl-adaptation-set) { display: none !important; }
-
-        /* Reveal matching group when menu is open. */
-        :host([videl-menu-open="audio"])
-          ::slotted(videl-adaptation-set[content-type="audio"])          { display: block !important; }
-        :host([videl-menu-open="text"])
-          ::slotted(videl-adaptation-set[content-type="text"])           { display: block !important; }
-        :host([videl-menu-open="quality"])
-          ::slotted(videl-adaptation-set[content-type="video"][videl-state="active"]) { display: block !important; }
-
-        /* ── Menu popup ───────────────────────────────────────────── */
-        /*
-         * position:absolute with no positioned ancestor on the period host
-         * means .controls (position:absolute on the presentation shadow) is
-         * the containing block. bottom:calc(100% + 4px) puts the popup just
-         * above the top edge of the controls bar; right:8px aligns it to the
-         * player's right edge.
-         */
-        .menu { display: none; }
-        :host([videl-menu-open]) .menu {
-          display: block;
-          position: absolute;
-          bottom: calc(100% + 4px);
-          right: 8px;
-          min-width: 160px;
-          max-width: 260px;
-          max-height: 220px;
-          overflow-y: auto;
-          background: rgba(16, 16, 16, 0.96);
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          padding: 4px;
-          z-index: 4;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-        }
-        .menu-title {
-          color: #777;
-          font-family: ui-monospace, monospace;
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          padding: 6px 8px 4px;
-          user-select: none;
-        }
-      </style>
-
       <div class="menu">
         ${this.menuOpen ? html`<div class="menu-title">${title}</div>` : nothing}
         <slot></slot>
       </div>
-
-      ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #a88;padding:4px;background:rgba(0,0,0,0.7);color:#fff;position:absolute;top:100%;left:0;z-index:10;white-space:nowrap">
-          <strong>videl-period</strong>
-          id=<em>${this.periodId}</em>
-          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          t=<em>${this.start}</em>+<em>${this.duration ?? '∞'}</em>s
-          menu=<em>${this.menuOpen ?? 'none'}</em>
-        </div>
-      ` : nothing}
     `;
   }
 }

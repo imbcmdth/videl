@@ -1,9 +1,10 @@
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, css, unsafeCSS } from 'lit';
+import representationCss from '../styles/videl-representation.css';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from '../lib/ergo-mse';
 import { parseSidx } from '../lib/mp4';
-import { expandTemplate, resolveUrl } from '../parser/template-utils';
+import { expandTemplate } from '../parser/template-utils';
 import { VidelSegment } from './videl-segment';
 import { trace } from '../trace';
 
@@ -88,6 +89,8 @@ function bufferEndNear(t: number, buffered: TimeRanges): number | null {
  *    aligned with reality even after large drifts in either direction.
  */
 export class VidelRepresentation extends PickOneMixin(LitElement) {
+  static styles = css`${unsafeCSS(representationCss)}`;
+
   static properties = {
     repId: { type: String,  attribute: 'id' },
     bandwidth: { type: Number },
@@ -109,32 +112,31 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     // ── SegmentTemplate addressing (stamped by parser, expanded at activation) ──
     /** Pre-expanded (id/bandwidth) + base-resolved media URL template.
      *  $Number$ and $Time$ tokens remain for expansion per-segment. */
-    segmentTemplateMedia:       { type: String,  attribute: 'segment-template-media' },
-    segmentTemplateTimescale:   { type: Number,  attribute: 'segment-template-timescale' },
+    segmentTemplateMedia: { type: String,  attribute: 'segment-template-media' },
+    segmentTemplateTimescale: { type: Number,  attribute: 'segment-template-timescale' },
     segmentTemplateStartNumber: { type: Number,  attribute: 'segment-template-start-number' },
-    segmentTemplatePto:         { type: Number,  attribute: 'segment-template-pto' },
+    segmentTemplatePto: { type: Number,  attribute: 'segment-template-pto' },
     /** Fixed segment duration in timescale ticks (@duration, no SegmentTimeline). */
-    segmentTemplateDuration:    { type: Number,  attribute: 'segment-template-duration' },
+    segmentTemplateDuration: { type: Number,  attribute: 'segment-template-duration' },
     /** JSON-serialised [{t?,d,r}] from SegmentTimeline <S> elements. */
-    segmentTemplateTimeline:    { type: String,  attribute: 'segment-template-timeline' },
+    segmentTemplateTimeline: { type: String,  attribute: 'segment-template-timeline' },
 
     // ── SegmentBase addressing (stamped by parser, resolved at activation) ──
     /** Resolved base URL for the media file (SegmentBase or ISO on-demand). */
-    segmentBaseUrl:        { type: String,  attribute: 'segment-base-url' },
+    segmentBaseUrl: { type: String,  attribute: 'segment-base-url' },
     /** indexRange from SegmentBase/@indexRange — if present, a sidx fetch is required. */
     segmentBaseIndexRange: { type: String,  attribute: 'segment-base-index-range' },
     /** ISO on-demand: period duration stamped for the whole-file single segment. */
-    periodDuration:        { type: Number,  attribute: 'period-duration' },
+    periodDuration: { type: Number,  attribute: 'period-duration' },
 
     /** Present when MPD@type="dynamic" — suppresses isFullyFetched, enables live extension. */
     live: { type: Boolean },
     /** DVR window depth in seconds from MPD@timeShiftBufferDepth. */
-    timeShiftBufferDepth:  { type: Number,  attribute: 'time-shift-buffer-depth' },
+    timeShiftBufferDepth: { type: Number,  attribute: 'time-shift-buffer-depth' },
 
     slot: { type: String,  reflect: true },
     /** Set by the parent adaptation-set when this rep is manually pinned. */
-    pinned: { type: Boolean, attribute: 'videl-pinned' },
-    debug: { type: Boolean }
+    pinned: { type: Boolean, attribute: 'videl-pinned' }
   };
 
   repId                    = '';
@@ -164,7 +166,6 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   timeShiftBufferDepth  = 0;
   slot   = '';
   pinned = false;
-  debug  = false;
 
   // ── SourceBuffer ──────────────────────────────────────────────────────────
 
@@ -628,7 +629,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     try {
       const resp = await fetch(url, {
         headers: { Range: `bytes=${rangeStart}-${rangeEnd}` },
-        signal: this.#initController?.signal,
+        signal: this.#initController?.signal
       });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status} fetching sidx at ${url} range ${rangeAttr}`);
@@ -667,9 +668,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
 
     trace(this, 'fetch', 'sidx-parsed', {
       url,
-      entryCount:       entries.length,
-      firstStartTime:   entries[0]!.startTime,
-      totalDuration:    entries.reduce((s, e) => s + e.duration, 0),
+      entryCount: entries.length,
+      firstStartTime: entries[0]!.startTime,
+      totalDuration: entries.reduce((s, e) => s + e.duration, 0)
     });
   }
 
@@ -705,7 +706,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
       return; // SegmentTimeline live — deferred
     }
 
-    const availabilityStartTime = Number(availStr);
+    // const availabilityStartTime = Number(availStr);
     const timescale  = this.segmentTemplateTimescale  ?? 1;
     const startNum   = this.segmentTemplateStartNumber ?? 1;
     const segDurSec  = segDuration / timescale;
@@ -783,9 +784,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     }
 
     trace(this, 'fetch', 'live-segments-updated', {
-      from:  fromSegNum,
-      to:    latestSegNum,
-      added: latestSegNum - fromSegNum + 1,
+      from: fromSegNum,
+      to: latestSegNum,
+      added: latestSegNum - fromSegNum + 1
     });
   }
 
@@ -835,9 +836,9 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
         // For VOD: timestampOffset = periodStart − pto/timescale (stamped by
         // the parser). wallAnchor = 0, so ManagedSourceBuffer applies it as-is.
         if (this.#sourceBuffer) {
-          const wallOffset = this.live
-            ? Number(this.getAttribute('availability-start-time') ?? '0')
-            : this.timestampOffset;
+          const wallOffset = this.live ?
+            Number(this.getAttribute('availability-start-time') ?? '0') :
+            this.timestampOffset;
           this.#sourceBuffer.timestampOffset = wallOffset;
         }
       })
@@ -937,49 +938,11 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
     const secondary = dims && kbps ? `${kbps} kbps` : '';
 
     return html`
-      <style>
-        :host { display: block; box-sizing: border-box; }
-        .q {
-          padding: 6px 8px;
-          margin: 1px 0;
-          color: #ddd;
-          font-family: ui-monospace, monospace;
-          font-size: 12px;
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          cursor: pointer;
-          user-select: none;
-        }
-        :host([videl-state="active"]) .q {
-          background: rgba(79, 156, 249, 0.25);
-          color: #fff;
-        }
-        /* Pinned (ABR disabled, this rep is forced): accent left border. */
-        :host([videl-pinned]) .q {
-          border-left: 2px solid #4f9cf9;
-          padding-left: 6px;
-        }
-        .q .detail { color: #9ab; }
-        ::slotted(videl-segment) { display: none !important; }
-      </style>
-
       <div class="q" @click=${this.#onClick} @contextmenu=${this.#onContextMenu}>
         <span>${primary}${active ? ' ✓' : ''}${this.pinned ? ' ⚲' : ''}</span>
         <span class="detail">${secondary}</span>
       </div>
       <slot></slot>
-
-      ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;margin-top:4px;background:rgba(0,0,0,0.6);color:#fff">
-          <strong>videl-representation</strong>
-          id=<em>${this.repId}</em>
-          bw=<em>${this.bandwidth}</em>
-          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          init=<em>${this.hasAttribute('videl-init-appended') ? 'done' : 'pending'}</em>
-          drift=<em>${this.#timelineDrift.toFixed(3)}s</em>
-        </div>
-      ` : nothing}
     `;
   }
 }

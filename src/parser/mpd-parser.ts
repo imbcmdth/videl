@@ -110,12 +110,12 @@ function buildPresentation(
   // product default is 0 (pure-live, no window), diverging from the ISO spec
   // default of infinite. Consumers may override by setting the player attr.
   const tsbdAttr = mpd.getAttribute('timeShiftBufferDepth');
-  const tsbd = isDynamic
-    ? (tsbdAttr !== null ? parseDuration(tsbdAttr) : tsbdDefault)
-    : 0;
+  const tsbd = isDynamic ?
+    (tsbdAttr !== null ? parseDuration(tsbdAttr) : tsbdDefault) :
+    0;
   const liveCtx: LiveContext | undefined = isDynamic ? {
     availabilityStartTime: parseIsoDateTime(mpd.getAttribute('availabilityStartTime') ?? ''),
-    timeShiftBufferDepth:  tsbd,
+    timeShiftBufferDepth: tsbd
   } : undefined;
 
   // No timeShiftBufferDepth on a live stream means no DVR window — seeking
@@ -130,9 +130,7 @@ function buildPresentation(
 
   let runningStart = 0;
   for (const period of children(mpd, 'Period')) {
-    const { el: periodEl, nextStart } = buildPeriod(
-      period, mpdBase, mpdDur, runningStart, liveCtx, mpdQueryString, mpdUrlQuery
-    );
+    const { el: periodEl, nextStart } = buildPeriod(period, mpdBase, mpdDur, runningStart, liveCtx, mpdQueryString, mpdUrlQuery);
     el.appendChild(periodEl);
     runningStart = nextStart;
   }
@@ -193,9 +191,9 @@ function buildPeriod(
   // conversions in the element tree (ADR-0005 unified wall-clock model).
   //
   // For VOD, wallStart = 0 + start = start (wallAnchor = 0, identity mapping).
-  const wallStart = liveCtx
-    ? liveCtx.availabilityStartTime + start
-    : start;
+  const wallStart = liveCtx ?
+    liveCtx.availabilityStartTime + start :
+    start;
   el.setAttribute('start', String(wallStart));
 
   let periodDuration: number | undefined;
@@ -220,7 +218,7 @@ function buildPeriod(
       base, parentST: periodST, parentSL: periodSL ?? undefined,
       // Pass wallStart so representations compute epoch-based segment times.
       periodStart: wallStart, periodDuration, liveCtx,
-      mpdQueryString: mpdQueryString ?? '', parentUrlQuery: childUrlQuery,
+      mpdQueryString: mpdQueryString ?? '', parentUrlQuery: childUrlQuery
     }));
   }
 
@@ -304,7 +302,7 @@ function buildAdaptationSet(
       parentCodecs: codecs,
       liveCtx: ctx.liveCtx,
       mpdQueryString: ctx.mpdQueryString ?? '',
-      parentUrlQuery: childUrlQuery,
+      parentUrlQuery: childUrlQuery
     }));
 
   // For video adaptation sets, sort representations by increasing bandwidth
@@ -397,7 +395,7 @@ function buildRepresentation(
   buildSegments(rep, el, {
     base, st, parentSL: ctx.parentSL,
     periodStart: ctx.periodStart, periodDuration: ctx.periodDuration,
-    id, bandwidth, liveCtx: ctx.liveCtx, urlQuery,
+    id, bandwidth, liveCtx: ctx.liveCtx, urlQuery
   });
 
   return el;
@@ -580,18 +578,16 @@ function stampSegmentTemplate(
   if (st.timeline && st.timeline.length > 0) {
     // Serialize the S-element array to JSON.  Only t/d/r are needed; t is
     // optional (the representation uses the running cursor if absent).
-    const timelineJson = JSON.stringify(
-      st.timeline.map(s => {
-        const entry: { d: number; r: number; t?: number } = {
-          d: Number(s.getAttribute('d') ?? 0),
-          r: Number(s.getAttribute('r') ?? 0),
-        };
-        if (s.hasAttribute('t')) {
-          entry.t = Number(s.getAttribute('t'));
-        }
-        return entry;
-      })
-    );
+    const timelineJson = JSON.stringify(st.timeline.map(s => {
+      const entry: { d: number; r: number; t?: number } = {
+        d: Number(s.getAttribute('d') ?? 0),
+        r: Number(s.getAttribute('r') ?? 0)
+      };
+      if (s.hasAttribute('t')) {
+        entry.t = Number(s.getAttribute('t'));
+      }
+      return entry;
+    }));
     repEl.setAttribute('segment-template-timeline', timelineJson);
   }
 

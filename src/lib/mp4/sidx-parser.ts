@@ -164,10 +164,8 @@ export function parseSidx(buffer: ArrayBuffer, sidxEndByte: number): SidxEntry[]
       byteOffset  += referencedSize;
       currentTime += subsegmentDuration / timescale;
       if (!hasWarnedNested) {
-        console.warn(
-          '[videl] sidx: nested sidx reference (reference_type=1) encountered ' +
-          '— recursive sidx chaining is not supported; entry skipped.'
-        );
+        console.warn('[videl] sidx: nested sidx reference (reference_type=1) encountered ' +
+          '— recursive sidx chaining is not supported; entry skipped.');
         hasWarnedNested = true;
       }
       continue;
@@ -180,7 +178,7 @@ export function parseSidx(buffer: ArrayBuffer, sidxEndByte: number): SidxEntry[]
     entries.push({
       byteRange: `${segStart}-${segEnd}`,
       startTime: currentTime,
-      duration,
+      duration
     });
 
     byteOffset  += referencedSize;

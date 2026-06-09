@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, nothing, css, unsafeCSS } from 'lit';
+import presentationCss from '../styles/videl-presentation.css';
 import { SequentialMixin } from '../mixins/sequential-mixin';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import { parseMpd } from '../parser/mpd-parser';
@@ -61,6 +62,8 @@ import {
 // The `as any` cast is required by TypeScript's mixin composition limitations —
 // the chained return types cannot be verified statically without it.
 export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) as any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  static styles = css`${unsafeCSS(presentationCss)}`;
+
   static properties = {
     src: { type: String },
     duration: { type: Number },
@@ -68,14 +71,13 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     minBufferTime: { type: Number,  attribute: 'min-buffer-time' },
     presentationType: { type: String,  attribute: 'type' },
     slot: { type: String,  reflect: true },
-    debug: { type: Boolean },
     // Pump-driven playback state (reflected to videl-* attributes for external observers).
-    currentTime:   { type: Number,  attribute: 'videl-current-time',   reflect: true },
-    paused:        { type: Boolean, attribute: 'videl-paused',         reflect: true },
-    volume:        { type: Number,  attribute: 'videl-volume',         reflect: true },
-    muted:         { type: Boolean, attribute: 'videl-muted',          reflect: true },
+    currentTime: { type: Number,  attribute: 'videl-current-time',   reflect: true },
+    paused: { type: Boolean, attribute: 'videl-paused',         reflect: true },
+    volume: { type: Number,  attribute: 'videl-volume',         reflect: true },
+    muted: { type: Boolean, attribute: 'videl-muted',          reflect: true },
     seekableStart: { type: Number,  attribute: 'videl-seekable-start', reflect: true },
-    seekableEnd:   { type: Number,  attribute: 'videl-seekable-end',   reflect: true },
+    seekableEnd: { type: Number,  attribute: 'videl-seekable-end',   reflect: true },
     // Which informational menu the control bar has open (drives the active period).
     menuOpen: { type: String,  attribute: 'videl-menu-open', reflect: true },
     // Mirrors document.fullscreenElement so the icon toggles reactively.
@@ -90,7 +92,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   minBufferTime:             number | null = null;
   presentationType:          'static' | 'dynamic' = 'static';
   slot: string | undefined   = undefined;
-  debug                      = false;
 
   // Pump-driven UI state (stamped by videlUpdate on every tick).
   /** Raw video.currentTime (player-time). @deprecated — UI scrubber only. */
@@ -400,9 +401,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // duration for VOD streams that have not yet received a pump tick.
     const isLive = this.presentationType === 'dynamic';
     const start  = this.seekableStart;
-    const end    = isLive && this.seekableEnd > 0
-      ? this.seekableEnd
-      : (this.mediaPresentationDuration ?? this.duration ?? 0);
+    const end    = isLive && this.seekableEnd > 0 ?
+      this.seekableEnd :
+      (this.mediaPresentationDuration ?? this.duration ?? 0);
     const span  = end - start;
     if (span > 0) {
       this.dispatchEvent(new CustomEvent('videl:ui:seek', {
@@ -523,9 +524,9 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // setLiveSeekableRange (updated every pump tick via video.seekable).
     const isLive    = this.presentationType === 'dynamic';
     const seekStart = this.seekableStart;  // wall-clock epoch seconds
-    const seekEnd   = isLive && this.seekableEnd > 0
-      ? this.seekableEnd
-      : (this.mediaPresentationDuration ?? this.duration ?? 0);
+    const seekEnd   = isLive && this.seekableEnd > 0 ?
+      this.seekableEnd :
+      (this.mediaPresentationDuration ?? this.duration ?? 0);
     const seekSpan  = seekEnd - seekStart;
     // Use currentWallTime (wall-clock epoch seconds) to match seekStart/End.
     // VOD: wallAnchor=0 so currentWallTime === currentTime — identical result.
@@ -534,269 +535,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     const displayDur = isLive ? seekSpan : seekEnd;
 
     return html`
-      <style>
-        /* ── Host base ───────────────────────────────────────────── */
-        :host {
-          display: block;
-          position: relative;
-          box-sizing: border-box;
-        }
-
-        /* ── Card form (inactive / prefetching) ──────────────────── */
-        /*
-         * When NOT the active stage overlay, a presentation renders as a
-         * playlist card: a 16:9 box that clips its content.
-         *
-         * CRITICAL: the card aspect-ratio and background are applied ONLY in
-         * this state, via :not([videl-state="active"]). They are NOT set on the
-         * base :host and then overridden — that would let an opaque background
-         * or a fixed ratio leak onto the active overlay if the override were
-         * ever dropped. Scoping here makes the transparent, full-bleed active
-         * state structurally guaranteed.
-         *
-         * Colours are themeable via custom properties; the defaults match the
-         * dark surface used by the demo so no host stylesheet is required.
-         */
-        :host(:not([videl-state="active"])) {
-          aspect-ratio: 16 / 9;
-          overflow: hidden;
-          cursor: pointer;
-          background: var(--videl-card-bg, #1a1a1a);
-          border: 1px solid var(--videl-card-border, #333);
-          transition: border-color 0.15s, transform 0.12s;
-        }
-        /* Prefetching card: subtly highlighted border. */
-        :host([videl-state="next"]) {
-          border-color: #555;
-        }
-        /* Hover affordance for selectable cards — never the active overlay. */
-        :host(:not([videl-state="active"]):hover) {
-          border-color: var(--videl-accent, #4f9cf9);
-          transform: translateY(-1px);
-        }
-
-        /*
-         * Generated single-stream presentations are never shown as cards — they
-         * activate immediately and fill the stage. Collapse to nothing while
-         * inactive so they occupy no space in the playlist. (This wins over the
-         * player's ::slotted(videl-presentation){width:100%} because an
-         * element's own :host outranks a containing shadow's ::slotted.)
-         */
-        :host([videl-generated]:not([videl-state="active"])) {
-          width: 0;
-          height: 0;
-          overflow: hidden;
-          border: none;
-          pointer-events: none;
-        }
-
-        /* ── Active: transparent overlay over the video stage ───── */
-        /*
-         * The player assigns slot="stage" to the active presentation, so this
-         * overlay is contained by the player's .stage element and covers only
-         * the video — never the playlist column. Because the card rules above
-         * are scoped to :not([videl-state="active"]), the active host inherits
-         * neither a card background nor a card aspect-ratio: it is transparent
-         * and fills the stage exactly (insets determine size).
-         */
-        :host([videl-state="active"]) {
-          position: absolute;
-          inset: 0;
-          width: auto;
-          height: auto;
-          z-index: 2;
-          background: transparent;
-        }
-
-        /* ── Card content frame (inactive only) ──────────────────── */
-        /*
-         * Frames the consumer's light-DOM content (projected through the
-         * default slot) as a playlist card: a bottom gradient with content
-         * bottom-aligned and rendered white. Consumers write plain semantic
-         * tags and need NO CSS classes — e.g. <strong> for the title and
-         * <small> for a subtitle. The tags' intrinsic weight/size provide the
-         * visual hierarchy and colour/font are inherited from the frame, so the
-         * card looks identical when the player clones this content into its
-         * "now playing" mirror (which mirrors these rules via
-         * ::slotted(.videl-now-playing) and reaches the clones only by
-         * inheritance). Hidden when active — the video + controls take over.
-         */
-        .card-frame {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          justify-content: flex-end;
-          gap: 2px;
-          padding: 8px;
-          box-sizing: border-box;
-          background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75));
-          color: #fff;
-          font-family: ui-monospace, monospace;
-          font-size: 11px;
-          line-height: 1.3;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-          pointer-events: none;
-        }
-        :host([videl-state="active"]) .card-frame {
-          display: none;
-        }
-
-        /* ── Click zone (play/pause) — covers video area above bar ─ */
-        .click-zone {
-          display: none;
-          position: absolute;
-          inset: 0;
-          bottom: 72px;
-          cursor: pointer;
-          background: transparent;
-        }
-        :host([videl-state="active"]) .click-zone {
-          display: block;
-        }
-
-        /* ── Controls bar (active only) ─────────────────────────── */
-        /*
-         * Hidden via display:none when not active. While active, opacity
-         * (not display) is used to hide/show so CSS transitions work.
-         * pointer-events mirrors opacity so inactive controls aren't clickable.
-         */
-        .controls {
-          display: none;
-          flex-direction: column;
-          gap: 4px;
-          position: absolute;
-          bottom: 0; left: 0; right: 0;
-          padding: 8px 12px 10px;
-          background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
-          box-sizing: border-box;
-          opacity: 1;
-          transition: opacity 0.3s;
-        }
-        :host([videl-state="active"]) .controls {
-          display: flex;
-        }
-        :host([videl-state="active"][videl-user-inactive]) .controls {
-          opacity: 0;
-          pointer-events: none;
-        }
-        :host([videl-state="active"][videl-user-inactive]) .click-zone {
-          cursor: none;
-        }
-
-        /* ── Seekbar row ─────────────────────────────────────────── */
-        /*
-         * .seek-track is a flex container; each slotted videl-period is a
-         * flex item whose flex-grow is set to its duration on the host element
-         * directly (dynamic values can't be carried through ::slotted()).
-         * The range input overlays the track invisibly — transparent track,
-         * visible thumb only — so the period segments are the visual track.
-         */
-        .seek-row {
-          position: relative;
-          height: 20px;
-          display: flex;
-          align-items: center;
-        }
-        /* Hide the seek bar entirely for live streams with no DVR window. */
-        :host([no-seek]) .seek-row {
-          display: none;
-        }
-        .seek-track {
-          display: flex;
-          gap: 2px;
-          width: 100%;
-          height: 4px;
-          align-items: stretch;
-          overflow: visible;
-        }
-        /* Periods in the seek slot render as seekbar segments.
-           flex-grow is set per-element by the period itself. */
-        ::slotted(videl-period) {
-          display: block !important;
-          height: 100%;
-        }
-        /* The range input overlays the segments: transparent track, thumb only. */
-        .seek-input {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          margin: 0;
-          padding: 0;
-          cursor: pointer;
-          z-index: 2;
-          appearance: none;
-          -webkit-appearance: none;
-          background: transparent;
-          outline: none;
-        }
-        .seek-input::-webkit-slider-runnable-track {
-          background: transparent;
-          height: 4px;
-        }
-        .seek-input::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #fff;
-          box-shadow: 0 0 4px rgba(0,0,0,0.5);
-          margin-top: -5px;
-        }
-        .seek-input::-moz-range-track {
-          background: transparent;
-          height: 4px;
-          border: none;
-        }
-        .seek-input::-moz-range-thumb {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #fff;
-          border: none;
-          box-shadow: 0 0 4px rgba(0,0,0,0.5);
-        }
-
-        /* ── Control row ─────────────────────────────────────────── */
-        .ctrl-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          color: #fff;
-          user-select: none;
-        }
-        .ctrl-btn {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: none;
-          border: none;
-          color: #fff;
-          cursor: pointer;
-          padding: 4px;
-          line-height: 1;
-          flex-shrink: 0;
-          transition: background 0.12s;
-        }
-        .ctrl-btn:hover { background: rgba(255,255,255,0.12); }
-        .menu-btn.open  { background: rgba(79, 156, 249, 0.35); }
-        .time-display {
-          font-family: ui-monospace, monospace;
-          font-variant-numeric: tabular-nums;
-          font-size: 12px;
-          white-space: nowrap;
-          flex-shrink: 0;
-          color: rgba(255,255,255,0.9);
-        }
-        .vol-input {
-          width: 56px;
-          accent-color: #fff;
-          cursor: pointer;
-        }
-        .spacer { flex: 1; }
-      </style>
-
       <!-- User light-DOM content (title/subtitle, poster, etc.), framed as a
            playlist card while inactive. Consumers use plain semantic tags
            (e.g. <strong> for the title, <small> for a subtitle) — no CSS
@@ -883,18 +621,6 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
           </button>
         </div>
       </div>
-
-      ${this.debug ? html`
-        <div style="font-family:monospace;font-size:11px;border:1px solid #88a;padding:4px;background:rgba(0,0,0,0.7);color:#fff;position:absolute;bottom:0;left:0;z-index:10;pointer-events:none">
-          <strong>videl-presentation</strong>
-          type=<em>${this.presentationType}</em>
-          state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-          dur=<em>${seekEnd > 0 ? seekEnd.toFixed(1) : (this.mediaPresentationDuration ?? this.duration ?? '?')}</em>s
-          populated=<em>${this.hasAttribute('videl-populated')}</em>
-          t=<em>${this.currentTime.toFixed(1)}</em>s
-          ${this.paused ? ICON_PAUSE : ICON_PLAY}
-        </div>
-      ` : nothing}
     `;
   }
 }

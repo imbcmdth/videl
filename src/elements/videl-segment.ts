@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, nothing, css, unsafeCSS } from 'lit';
+import segmentCss from '../styles/videl-segment.css';
 import type { ISourceBuffer } from '../lib/ergo-mse';
 import { trace } from '../trace';
 
@@ -24,6 +25,8 @@ import { trace } from '../trace';
  *   videl:segment:error — { error: Error }        — fetch or append failed
  */
 export class VidelSegment extends LitElement {
+  static styles = css`${unsafeCSS(segmentCss)}`;
+
   /**
    * Extend LitElement's observed attribute list with `videl-state`.
    * Declared as a getter (not a static field) so it participates in Lit's
@@ -54,8 +57,7 @@ export class VidelSegment extends LitElement {
     byteRange: { type: String, attribute: 'byte-range' },
     startTime: { type: Number, attribute: 'start-time' },
     duration: { type: Number },
-    slot: { type: String, reflect: true },
-    debug: { type: Boolean }
+    slot: { type: String, reflect: true }
   };
 
   url       = '';
@@ -63,7 +65,6 @@ export class VidelSegment extends LitElement {
   startTime = 0;
   duration  = 0;
   slot      = '';
-  debug     = false;
 
   sourceBuffer: ISourceBuffer | null = null;
 
@@ -222,19 +223,7 @@ export class VidelSegment extends LitElement {
   // ── Lit render ────────────────────────────────────────────────────────────
 
   render() {
-    if (!this.debug) {
-      return nothing;
-    }
-    return html`
-      <style>
-        :host { display: block; font-family: monospace; font-size: 11px;
-                border: 1px solid #aaa; padding: 4px; margin: 2px; }
-      </style>
-      <strong>videl-segment</strong>
-      state=<em>${this.getAttribute('videl-state') ?? 'idle'}</em>
-      url=<em>${this.url}</em>
-      t=<em>${this.startTime}</em>+<em>${this.duration}</em>s
-    `;
+    return nothing;
   }
 }
 
