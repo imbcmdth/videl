@@ -3,6 +3,7 @@ import periodCss from '../styles/videl-period.css';
 import { PickNMixin } from '../mixins/pick-n-mixin';
 import type { PlayerState } from '../player-state';
 import { VidelAdaptationSet } from './videl-adaptation-set';
+import { VidelEventStream } from './videl-event-stream';
 
 /**
  * `<videl-period>` — owns a set of `<videl-adaptation-set>` children and
@@ -99,6 +100,10 @@ export class VidelPeriod extends PickNMixin(LitElement) {
       if (this.hasAttribute('videl-menu-open')) {
         this.removeAttribute('videl-menu-open');
       }
+      // Deactivate all event streams (PickNMixin handles adaptation sets).
+      for (const es of this.#childEventStreams) {
+        es.removeAttribute('videl-state');
+      }
     }
   }
 
@@ -122,6 +127,14 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     // Fan out to all active adaptation sets.
     for (const ads of this.#activeAdaptationSets) {
       ads.videlUpdate(state);
+    }
+
+    // Fan out to all active event streams (excluded from period-completion
+    // logic — event streams never gate period advancement).
+    for (const es of this.#childEventStreams) {
+      if (es.getAttribute('videl-state') === 'active') {
+        es.videlUpdate(state);
+      }
     }
 
     // Period completion — fires videl:done on whichever trigger comes first:
@@ -177,6 +190,13 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     return this.#childAdaptationSets.filter(el => el.getAttribute('videl-state') === 'active');
   }
 
+  /** All `<videl-event-stream>` direct children. */
+  get #childEventStreams(): VidelEventStream[] {
+    return Array.from(this.children).filter(
+      el => el.tagName.toLowerCase() === 'videl-event-stream'
+    ) as VidelEventStream[];
+  }
+
   /** Group adaptation-set children by their `content-type` attribute. */
   #groupByContentType(): Map<string, VidelAdaptationSet[]> {
     const map = new Map<string, VidelAdaptationSet[]>();
@@ -194,7 +214,8 @@ export class VidelPeriod extends PickNMixin(LitElement) {
 
   /** Activate the first adaptation set per content-type simultaneously.
    * For text, the first candidate is the "None" ADS injected by the parser —
-   * activating it hides the TextTrack (subtitles off by default). */
+   * activating it hides the TextTrack (subtitles off by default).
+   * All event streams are activated unconditionally (no selection logic). */
   #activateAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
       const chosen = this.selectAdaptationSet(contentType, candidates);
@@ -202,15 +223,22 @@ export class VidelPeriod extends PickNMixin(LitElement) {
         this.activateChild(chosen);
       }
     }
+    for (const es of this.#childEventStreams) {
+      es.setAttribute('videl-state', 'active');
+    }
   }
 
-  /** Preload the first adaptation set per content-type simultaneously. */
+  /** Preload the first adaptation set per content-type simultaneously.
+   * All event streams are also preloaded so context is sent early. */
   #preloadAll(): void {
     for (const [contentType, candidates] of this.#groupByContentType()) {
       const chosen = this.selectAdaptationSet(contentType, candidates);
       if (chosen) {
         this.preloadChild(chosen);
       }
+    }
+    for (const es of this.#childEventStreams) {
+      es.setAttribute('videl-state', 'next');
     }
   }
 

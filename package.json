@@ -1,6 +1,6 @@
 {
   "name": "videl",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A bad idea for a video player built with web components",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -36,7 +36,7 @@
     "esbuild@0.19.12": true
   },
   "dependencies": {
-    "ergo-mse": "github:imbcmdth/ergo-mse#v1.0.0",
+    "ergo-mse": "github:imbcmdth/ergo-mse#v1.1.0",
     "lit": "^3.3.3"
   }
 }

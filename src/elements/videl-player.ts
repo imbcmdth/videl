@@ -6,6 +6,7 @@ import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
 import { VidelAdaptationSet } from './videl-adaptation-set';
 import { VidelPresentation } from './videl-presentation';
+import { VidelEventStream } from './videl-event-stream';
 
 /**
  * `<videl-player>` — the root orchestrator and playlist container.
@@ -573,6 +574,32 @@ export class VidelPlayer extends HTMLElement {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(`[videl-player] addSourceBuffer failed for ${contentType}:`, e);
+      }
+    }
+
+    // Create a shared EventSourceBuffer for MPD event streams, if any exist.
+    // ergo-mse handles emsg detection wiring internally once this is created.
+    const eventStreamEls = [
+      ...presEl.querySelectorAll('videl-event-stream')
+    ] as VidelEventStream[];
+
+    if (eventStreamEls.length > 0 && !this.#sourceBuffers.has('event-stream')) {
+      try {
+        const esb = mse.addSourceBuffer('application/dash+xml; codecs="event-stream"');
+        esb.wallAnchor = this.#wallAnchor;
+        this.#sourceBuffers.set('event-stream', esb);
+        trace(this, 'mse', 'add-event-source-buffer', { count: eventStreamEls.length });
+        for (const es of eventStreamEls) {
+          es.sourceBuffer = esb;
+        }
+      } catch (e) {
+        console.warn('[videl-player] EventSourceBuffer creation failed:', e);
+      }
+    } else if (this.#sourceBuffers.has('event-stream')) {
+      // Reuse the existing EventSourceBuffer across periods.
+      const esb = this.#sourceBuffers.get('event-stream')!;
+      for (const es of eventStreamEls) {
+        es.sourceBuffer = esb;
       }
     }
 

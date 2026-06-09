@@ -229,6 +229,11 @@ function buildPeriod(
     el.insertBefore(buildNoneTextAds(), firstTextAds);
   }
 
+  // Build EventStream children (MPD timed events — peer to AdaptationSet).
+  for (const es of children(period, 'EventStream')) {
+    el.appendChild(buildEventStream(es, wallStart));
+  }
+
   // Advance the cursor in presentation-relative space (used to compute the
   // next period's presentation offset before converting to wall-clock).
   const nextStart = periodDuration !== undefined ? start + periodDuration : start;
@@ -338,6 +343,83 @@ function buildNoneTextAds(): HTMLElement {
   el.setAttribute('content-type',   'text');
   el.setAttribute('videl-text-none', '');
   el.setAttribute('label',          'None');
+  return el;
+}
+
+// ---------------------------------------------------------------------------
+// EventStream → <videl-event-stream> + <videl-event> children
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `<videl-event-stream>` element from an MPD `<EventStream>` node.
+ *
+ * The EventStream is a peer of AdaptationSet inside a Period — it carries
+ * DASH timed events inline in the manifest rather than in media segments.
+ *
+ * Attribute mapping (no `videl-` prefix — these are manifest-derived values):
+ *   scheme-id-uri              ← EventStream@schemeIdUri
+ *   value                      ← EventStream@value (optional)
+ *   timescale                  ← EventStream@timescale (default 1)
+ *   presentation-time-offset   ← EventStream@presentationTimeOffset (default 0)
+ *   period-start               ← wall-clock epoch seconds of the period start
+ */
+function buildEventStream(es: Element, periodStart: number): HTMLElement {
+  const el = document.createElement('videl-event-stream');
+
+  el.setAttribute('scheme-id-uri', es.getAttribute('schemeIdUri') ?? '');
+
+  const timescale = Number(es.getAttribute('timescale') ?? '1') || 1;
+  const pto       = Number(es.getAttribute('presentationTimeOffset') ?? '0');
+  el.setAttribute('timescale',                String(timescale));
+  el.setAttribute('presentation-time-offset', String(pto));
+
+  if (es.hasAttribute('value')) {
+    el.setAttribute('value', es.getAttribute('value')!);
+  }
+
+  el.setAttribute('period-start', String(periodStart));
+
+  for (const ev of children(es, 'Event')) {
+    el.appendChild(buildEvent(ev));
+  }
+
+  return el;
+}
+
+/**
+ * Build a `<videl-event>` element from an MPD `<Event>` node.
+ *
+ * Attribute mapping (no `videl-` prefix — manifest-derived values):
+ *   presentation-time  ← Event@presentationTime (raw ticks; default 0)
+ *   duration           ← Event@duration (raw ticks; omitted when absent)
+ *   id                 ← Event@id (omitted when absent)
+ *   message-data       ← Event@messageData (base64; omitted when absent)
+ *
+ * Inline text content is preserved as the element's textContent for use as
+ * the event payload when @messageData is absent.
+ */
+function buildEvent(ev: Element): HTMLElement {
+  const el = document.createElement('videl-event');
+
+  if (ev.hasAttribute('presentationTime')) {
+    el.setAttribute('presentation-time', ev.getAttribute('presentationTime')!);
+  }
+  if (ev.hasAttribute('duration')) {
+    el.setAttribute('duration', ev.getAttribute('duration')!);
+  }
+  if (ev.hasAttribute('id')) {
+    el.setAttribute('id', ev.getAttribute('id')!);
+  }
+  if (ev.hasAttribute('messageData')) {
+    el.setAttribute('message-data', ev.getAttribute('messageData')!);
+  }
+
+  // Preserve inline payload as text content.
+  const payload = ev.textContent?.trim() ?? '';
+  if (payload) {
+    el.textContent = payload;
+  }
+
   return el;
 }
 

@@ -7,6 +7,8 @@ export { VidelAdaptationSet } from './elements/videl-adaptation-set';
 export { VidelPeriod } from './elements/videl-period';
 export { VidelPresentation } from './elements/videl-presentation';
 export { VidelPlayer } from './elements/videl-player';
+export { VidelEventStream } from './elements/videl-event-stream';
+export { VidelEvent } from './elements/videl-event';
 export { parseMpd, ParseError, parseDuration } from './parser/mpd-parser';
 export type { TraceCategory, TraceDetail } from './trace';
 
