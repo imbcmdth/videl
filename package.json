@@ -1,14 +1,15 @@
 {
   "name": "videl",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A bad idea for a video player built with web components",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "npm-run-all build:dist build:demo",
-    "build:dist": "esbuild src/index.ts --bundle --loader:.css=text --platform=browser --target=es2020 --outfile=dist/index.js --format=esm && esbuild src/index.ts --bundle --loader:.css=text --platform=browser --target=es2020 --outfile=dist/index.min.js --format=esm --minify --sourcemap",
+    "build": "npm-run-all -p build:*",
+    "build:dist": "esbuild src/index.ts --bundle --loader:.css=text --platform=browser --target=es2020 --outfile=dist/index.js --format=esm",
+    "build:dist-min": "esbuild src/index.ts --bundle --loader:.css=text --platform=browser --target=es2020 --outfile=dist/index.min.js --format=esm --minify --sourcemap",
     "build:demo": "esbuild demo/main.ts --bundle --loader:.css=text --platform=browser --target=es2022 --outfile=demo/dist/bundle.js --format=esm --sourcemap",
-    "lint": "npm-run-all lint:fix lint:types",
+    "lint": "npm-run-all -p lint:*",
     "lint:fix": "eslint src",
     "lint:types": "tsc --noEmit",
     "test": "playwright test"
@@ -35,6 +36,7 @@
     "esbuild@0.19.12": true
   },
   "dependencies": {
+    "ergo-mse": "github:imbcmdth/ergo-mse#v1.0.0",
     "lit": "^3.3.3"
   }
 }

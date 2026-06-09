@@ -2,7 +2,7 @@ import { LitElement, html, css, unsafeCSS } from 'lit';
 import adaptationSetCss from '../styles/videl-adaptation-set.css';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
-import type { ISourceBuffer } from '../lib/ergo-mse';
+import type { ISourceBuffer } from 'ergo-mse';
 import { VidelRepresentation } from './videl-representation';
 import { trace } from '../trace';
 

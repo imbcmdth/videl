@@ -1,4 +1,4 @@
-import type { OffsetTimeRanges } from './lib/ergo-mse/offset-time-ranges';
+import type { OffsetTimeRanges } from 'ergo-mse';
 
 /**
  * PlayerState defines the shape of the state object passed to the videlUpdate()

@@ -1,8 +1,7 @@
 import playerCss from '../styles/videl-player.css';
 import { parseMpd } from '../parser/mpd-parser';
-import { ErgoMediaSource, TextSourceBuffer } from '../lib/ergo-mse';
-import { OffsetTimeRanges } from '../lib/ergo-mse/offset-time-ranges';
-import type { ISourceBuffer } from '../lib/ergo-mse';
+import { ErgoMediaSource, TextSourceBuffer, OffsetTimeRanges } from 'ergo-mse';
+import type { ISourceBuffer } from 'ergo-mse';
 import type { PlayerState } from '../player-state';
 import { trace } from '../trace';
 import { VidelAdaptationSet } from './videl-adaptation-set';

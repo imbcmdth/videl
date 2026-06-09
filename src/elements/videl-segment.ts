@@ -1,6 +1,6 @@
 import { LitElement, nothing, css, unsafeCSS } from 'lit';
 import segmentCss from '../styles/videl-segment.css';
-import type { ISourceBuffer } from '../lib/ergo-mse';
+import type { ISourceBuffer } from 'ergo-mse';
 import { trace } from '../trace';
 
 /**
