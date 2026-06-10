@@ -112,7 +112,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * Async activation path: fires `videl:before-activate` before activating all
    * adaptation sets.
    */
-  private async #onBecomeActive(): Promise<void> {
+  async #onBecomeActive(): Promise<void> {
     await this.#fireBeforeActivate();
     this.#activateAll();
   }
@@ -121,8 +121,8 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
    * to settle.
    */
-  private async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this);
+  async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this as unknown as Element);
     this.dispatchEvent(event);
     await event.settled;
   }
@@ -131,7 +131,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * Handle activation failure: revert the `videl-state` attribute and dispatch
    * a `videl:activate:error` event.
    */
-  private #onActivateError(err: unknown): void {
+  #onActivateError(err: unknown): void {
     this.removeAttribute('videl-state');
     this.dispatchEvent(new CustomEvent('videl:activate:error', {
       bubbles: true,
@@ -228,9 +228,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
 
   /** All `<videl-event-stream>` direct children. */
   get #childEventStreams(): VidelEventStream[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-event-stream'
-    ) as VidelEventStream[];
+    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-event-stream') as VidelEventStream[];
   }
 
   /** Group adaptation-set children by their `content-type` attribute. */

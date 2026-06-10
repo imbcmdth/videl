@@ -54,10 +54,10 @@ export class VidelEvent extends LitElement {
 
   static properties = {
     presentationTime: { type: Number, attribute: 'presentation-time' },
-    duration:         { type: Number },
-    eventId:          { type: Number, attribute: 'dash-id' },
-    messageData:      { type: String, attribute: 'message-data' },
-    slot:             { type: String, reflect: true },
+    duration: { type: Number },
+    eventId: { type: Number, attribute: 'dash-id' },
+    messageData: { type: String, attribute: 'message-data' },
+    slot: { type: String, reflect: true }
   };
 
   presentationTime = 0;
@@ -120,9 +120,9 @@ export class VidelEvent extends LitElement {
     this.setAttribute('videl-done', '');
 
     this.dispatchEvent(new CustomEvent('videl:done', {
-      bubbles:  true,
+      bubbles: true,
       composed: true,
-      detail:   { presentationTime: this.presentationTime },
+      detail: { presentationTime: this.presentationTime }
     }));
   }
 
@@ -133,15 +133,15 @@ export class VidelEvent extends LitElement {
    */
   #toXml(): string {
     const pt  = this.getAttribute('presentation-time') ?? '0';
-    const dur = this.hasAttribute('duration')
-      ? ` duration="${this.getAttribute('duration')}"`
-      : '';
-    const id  = this.hasAttribute('dash-id')
-      ? ` id="${this.getAttribute('dash-id')}"`
-      : '';
-    const md  = this.messageData
-      ? ` messageData="${this.messageData}"`
-      : '';
+    const dur = this.hasAttribute('duration') ?
+      ` duration="${this.getAttribute('duration')}"` :
+      '';
+    const id  = this.hasAttribute('dash-id') ?
+      ` id="${this.getAttribute('dash-id')}"` :
+      '';
+    const md  = this.messageData ?
+      ` messageData="${this.messageData}"` :
+      '';
     // Use inline payload only when there is no base64 messageData.
     const body = this.messageData ? '' : (this.textContent?.trim() ?? '');
     return `<Event presentationTime="${pt}"${dur}${id}${md}>${body}</Event>`;
@@ -149,9 +149,9 @@ export class VidelEvent extends LitElement {
 
   #fireError(error: Error): void {
     this.dispatchEvent(new CustomEvent('videl:segment:error', {
-      bubbles:  true,
+      bubbles: true,
       composed: true,
-      detail:   { error },
+      detail: { error }
     }));
   }
 

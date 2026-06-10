@@ -305,19 +305,19 @@ test('criterion 6 — videl:done fires with periodId when period ends', async ({
 
     // Tick before end — no event.
     period.videlUpdate({
-      currentTime: 29.9, bandwidth: 1e6, playbackRate: 1,
+      currentTime: 29.9, currentWallTime: 29.9, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
     // Tick at/past end — event fires.
     period.videlUpdate({
-      currentTime: 30.1, bandwidth: 1e6, playbackRate: 1,
+      currentTime: 30.1, currentWallTime: 30.1, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
     // Additional tick — must NOT fire a second time.
     period.videlUpdate({
-      currentTime: 35, bandwidth: 1e6, playbackRate: 1,
+      currentTime: 35, currentWallTime: 35, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
@@ -463,7 +463,7 @@ test('criterion 6 (once) — videl:done fires exactly once even across many tick
 
     for (let t = 9; t <= 20; t++) {
       period.videlUpdate({
-        currentTime: t, bandwidth: 1e6, playbackRate: 1,
+        currentTime: t, currentWallTime: t, bandwidth: 1e6, playbackRate: 1,
         buffered: { length: 0, start: () => 0, end: () => 0 },
       });
     }

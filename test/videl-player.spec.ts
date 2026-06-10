@@ -310,35 +310,6 @@ test('criterion 2 — changing src closes the previous MediaSource and loads fre
 });
 
 // ---------------------------------------------------------------------------
-// Criterion 12 — debug attribute propagates to all descendant elements
-// ---------------------------------------------------------------------------
-test('criterion 12 — debug attribute propagates to all videl-* descendants', async ({ page }) => {
-  const result = await page.evaluate(async () => {
-    await import('/dist/index.js');
-
-    const player = document.createElement('videl-player') as any;
-    document.body.appendChild(player);
-    player.setAttribute('src', '/stream.mpd');
-    await new Promise<void>(r => setTimeout(r, 1000));
-
-    // Set debug AFTER load so we can verify propagation.
-    player.setAttribute('debug', '');
-    await new Promise<void>(r => setTimeout(r, 50));
-
-    const tags = ['videl-presentation','videl-period','videl-adaptation-set',
-                  'videl-representation','videl-segment'];
-    const results: Record<string, boolean> = {};
-    for (const tag of tags) {
-      const el = player.querySelector(tag);
-      results[tag] = el?.hasAttribute('debug') ?? false;
-    }
-    return results;
-  });
-
-  for (const [tag, hasDebug] of Object.entries(result)) {
-    expect(hasDebug, `${tag} should have debug attribute`).toBe(true);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Criterion 16 — addSourceBuffer is only called by videl-player

@@ -468,6 +468,262 @@ document.querySelector('videl-player').addEventListener('videl:trace', e => {
 
 ---
 
+#### DRM — Encrypted Media Extensions
+
+Videl supports Widevine, PlayReady, FairPlay, and ClearKey protected DASH content via the [Encrypted Media Extensions](https://www.w3.org/TR/encrypted-media/) API. DRM is configured exclusively through JavaScript properties — there are no DRM attributes — because the configuration surface includes non-serializable callbacks (`parseLicenseResponse`, `requestFilter`, `initDataTransform`).
+
+##### Configuration scope
+
+DRM config can be set at two levels. The player checks them in order:
+
+1. **`presentation.drmConfig`** — per-presentation override (set in a `videl:before-activate` handler)
+2. **`player.drmConfig`** — player-wide default (used when the presentation has no override)
+
+##### `videl:before-activate`
+
+Every videl element dispatches `videl:before-activate` immediately before its `videl-state` transitions to `"active"`. The event carries a `waitUntil(promise)` method modeled on the Service Worker `ExtendableEvent` — the element waits for all registered promises to resolve before proceeding. This is the correct place to perform any async setup (token fetches, DRM config) that must complete before activation.
+
+```js
+player.addEventListener('videl:before-activate', (event) => {
+  const { element } = event.detail;
+  // element is the element about to become active —
+  // videl-player, videl-presentation, videl-period, or videl-adaptation-set
+});
+```
+
+The event fires on **every** element type in the hierarchy but activation of child elements is independent — listening on `<videl-player>` catches all of them via bubbling. Filter by `element.tagName` to target the right level.
+
+`videl:before-activate` does **not** fire for `videl-state="next"` (prefetch). Only the `"active"` transition triggers it.
+
+---
+
+##### Single stream — player-level config
+
+The simplest case: one stream, one license server. Set `drmConfig` before `src`.
+
+```js
+const player = document.querySelector('videl-player');
+
+player.drmConfig = {
+  'com.widevine.alpha': {
+    serverUrl: 'https://license.example.com/widevine'
+  }
+};
+
+player.src = 'https://cdn.example.com/stream.mpd';
+```
+
+---
+
+##### Playlist — per-presentation config via `videl:before-activate`
+
+In playlist mode each `<videl-presentation>` activates in turn. Set DRM config on the individual element inside a `videl:before-activate` handler so each presentation carries its own license server credentials. The handler is also the right place to fetch a short-lived auth token, because `event.waitUntil()` holds activation until the fetch completes.
+
+```js
+player.addEventListener('videl:before-activate', (event) => {
+  const { element } = event.detail;
+
+  if (element.tagName !== 'VIDEL-PRESENTATION') return;
+
+  event.waitUntil(
+    fetch('/auth/license-token', { method: 'POST' })
+      .then(r => r.json())
+      .then(({ token }) => {
+        element.drmConfig = {
+          'com.widevine.alpha': {
+            serverUrl: 'https://license.example.com/widevine',
+            httpRequestHeaders: { Authorization: `Bearer ${token}` }
+          }
+        };
+      })
+  );
+});
+```
+
+```html
+<videl-player>
+  <videl-presentation src="ep1.mpd">…</videl-presentation>
+  <videl-presentation src="ep2.mpd">…</videl-presentation>
+</videl-player>
+```
+
+The player will not call `#video.play()` or proceed with MSE setup until every `waitUntil` promise resolves. If the promise rejects, `videl:activate:error` fires on the element and activation is aborted.
+
+---
+
+##### `DrmSystemConfig` reference
+
+All fields are optional. Use only those required for your provider.
+
+| Field | Type | Description |
+|---|---|---|
+| `serverUrl` | `string` | License server URL. Omit only for ClearKey with inline `keys`. |
+| `httpRequestHeaders` | `Record<string, string>` | HTTP headers sent with every license request (e.g. `Authorization`). |
+| `httpTimeout` | `number` | License request timeout in milliseconds. |
+| `certificateUrl` | `string` | **FairPlay only.** URL of the server certificate (DER-encoded). Player fetches it automatically before the first session. |
+| `certificate` | `Uint8Array` | **FairPlay only.** Pre-fetched server certificate. Takes precedence over `certificateUrl`. |
+| `initDataTransform` | `(initData, initDataType, cert) => Uint8Array \| Promise<Uint8Array>` | **FairPlay only.** Override the default `skd://` envelope builder when the provider uses a non-standard contentId format. |
+| `parseLicenseResponse` | `(responseBody: ArrayBuffer) => ArrayBuffer \| Promise<ArrayBuffer>` | Decode the raw HTTP response body into key bytes. Default: pass-through (binary). Override for base64 or JSON-wrapped responses. |
+| `requestFilter` | `(request: { url, headers, body }) => void \| Promise<void>` | Mutate the outgoing license request in-place before it is sent. |
+| `keys` | `Record<string, string>` | **ClearKey only.** Inline key map (`keyIdHex → keyHex`). No license server needed when this is provided. |
+
+`DrmConfig` is `Record<string, DrmSystemConfig>` — a map of EME key system string to config.
+
+---
+
+##### Widevine
+
+```js
+player.drmConfig = {
+  'com.widevine.alpha': {
+    serverUrl: 'https://license.example.com/widevine',
+    httpRequestHeaders: {
+      'Authorization': 'Bearer <token>'
+    }
+  }
+};
+```
+
+With a JSON-wrapped license response (common with proxy servers):
+
+```js
+player.drmConfig = {
+  'com.widevine.alpha': {
+    serverUrl: 'https://license.example.com/widevine',
+    parseLicenseResponse: async (body) => {
+      const { license } = JSON.parse(new TextDecoder().decode(body));
+      return Uint8Array.from(atob(license), c => c.charCodeAt(0)).buffer;
+    }
+  }
+};
+```
+
+---
+
+##### PlayReady
+
+```js
+player.drmConfig = {
+  'com.microsoft.playready': {
+    serverUrl: 'https://license.example.com/playready'
+  }
+};
+```
+
+---
+
+##### FairPlay (Safari)
+
+FairPlay requires a server certificate and may require a custom `initDataTransform` when the provider uses a non-standard `skd://` format.
+
+```js
+player.drmConfig = {
+  'com.apple.fps': {
+    serverUrl:      'https://license.example.com/fairplay',
+    certificateUrl: 'https://cdn.example.com/fps-cert.cer',
+
+    // Provider returns base64-encoded CKC — decode it before session.update()
+    parseLicenseResponse: async (body) => {
+      const b64 = new TextDecoder().decode(body);
+      return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+    }
+  }
+};
+```
+
+When the provider uses a non-`skd://` contentId format, override `initDataTransform`:
+
+```js
+player.drmConfig = {
+  'com.apple.fps': {
+    serverUrl:      'https://license.example.com/fairplay',
+    certificateUrl: 'https://cdn.example.com/fps-cert.cer',
+
+    // Custom contentId extraction — e.g. provider sends a raw UUID blob
+    initDataTransform: (initData, initDataType, cert) => {
+      const contentId = extractContentIdFromBlob(initData);
+      return buildFairPlayEnvelope(initData, contentId, cert);
+    },
+
+    parseLicenseResponse: async (body) => {
+      const { ckc } = JSON.parse(new TextDecoder().decode(body));
+      return Uint8Array.from(atob(ckc), c => c.charCodeAt(0)).buffer;
+    }
+  }
+};
+```
+
+The default `initDataTransform` (used when none is provided) treats initData as a UTF-8 `skd://` URL and builds Apple's standard binary envelope. Override only when the provider deviates from this.
+
+---
+
+##### ClearKey
+
+ClearKey is a W3C-standardised key system that works without a license server. Provide key IDs and their corresponding keys in hex:
+
+```js
+player.drmConfig = {
+  'org.w3.clearkey': {
+    keys: {
+      '6935b4a2f7a5bd8a6bca38e1e2c9dbb1': '6fc1e5c3f6eb28e04db86c07b7e3f87e'
+    }
+  }
+};
+```
+
+For a ClearKey server (useful for testing infrastructure):
+
+```js
+player.drmConfig = {
+  'org.w3.clearkey': {
+    serverUrl: 'https://clearkey.example.com/license'
+  }
+};
+```
+
+---
+
+##### Mixed key systems in a playlist
+
+Different presentations in a playlist can use different key systems. The lookup order (presentation config → player config) makes this straightforward:
+
+```js
+// Player-wide Widevine default for most presentations
+player.drmConfig = {
+  'com.widevine.alpha': {
+    serverUrl: 'https://license.example.com/widevine'
+  }
+};
+
+// Override just the FairPlay presentation
+player.addEventListener('videl:before-activate', (event) => {
+  const { element } = event.detail;
+  if (element.tagName !== 'VIDEL-PRESENTATION') return;
+  if (element.getAttribute('src')?.includes('fairplay')) {
+    element.drmConfig = {
+      'com.apple.fps': {
+        serverUrl:      'https://license.example.com/fairplay',
+        certificateUrl: 'https://cdn.example.com/fps-cert.cer'
+      }
+    };
+  }
+});
+```
+
+---
+
+##### DRM events
+
+| Event | Detail | When |
+|---|---|---|
+| `videl:before-activate` | `{ element }` | Any element is about to become active. Use `event.waitUntil(promise)` to delay activation. |
+| `videl:activate:error` | `{ element, error }` | A `waitUntil` promise rejected, or activation setup failed. `videl-state` is reverted. |
+| `videl:drm:ready` | `{ keySystem: string }` | `MediaKeys` created and set on the video element. |
+| `videl:drm:session-created` | `{ sessionId: string }` | A new EME key session was created. |
+| `videl:drm:error` | `{ error: Error }` | Key system access failed, license request failed, or `session.update()` rejected. |
+
+---
+
 #### License
 
 [MIT](LICENSE) © 2026 Jon-Carlos Rivera

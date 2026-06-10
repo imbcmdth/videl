@@ -16,7 +16,7 @@ export class VidelBeforeActivateEvent extends CustomEvent<{ element: Element }> 
       bubbles: true,
       composed: true,
       cancelable: false,
-      detail: { element },
+      detail: { element } as { element: Element }
     });
   }
 

@@ -8,6 +8,17 @@ import { VidelBeforeActivateEvent } from '../events';
 import { trace } from '../trace';
 
 /**
+ * Parsed ContentProtection data from the MPD.
+ */
+export interface ContentProtectionInfo {
+  schemeIdUri: string;
+  value?: string;        // encryption scheme: "cenc" | "cbcs"
+  keyId?: string;        // default_KID in hex (no dashes, lowercase)
+  pssh?: string;         // base64-encoded PSSH box
+  robustness?: string;
+}
+
+/**
  * `<videl-adaptation-set>` — owns a set of `<videl-representation>` children
  * for one content type (video | audio | text).
  *
@@ -86,6 +97,23 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     return this.#activeRepresentation?.isFullyFetched ?? false;
   }
 
+  /**
+   * Parsed ContentProtection data from the `protection` attribute (JSON array).
+   * Returns an empty array if no protection data is present or if parsing fails.
+   */
+  get protectionData(): ContentProtectionInfo[] {
+    const attr = this.getAttribute('protection');
+    if (!attr) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(attr);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   // ── Custom element lifecycle ──────────────────────────────────────────────
 
   connectedCallback(): void {
@@ -121,7 +149,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * Async activation path: fires `videl:before-activate` before proceeding with
    * sourceBuffer setup and ABR initialization.
    */
-  private async #onBecomeActive(): Promise<void> {
+  async #onBecomeActive(): Promise<void> {
     await this.#fireBeforeActivate();
 
     if (!this.#sourceBuffer) {
@@ -168,8 +196,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
    * to settle.
    */
-  private async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this);
+  async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this as unknown as Element);
     this.dispatchEvent(event);
     await event.settled;
   }
@@ -178,7 +206,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * Handle activation failure: revert the `videl-state` attribute and dispatch
    * a `videl:activate:error` event.
    */
-  private #onActivateError(err: unknown): void {
+  #onActivateError(err: unknown): void {
     this.removeAttribute('videl-state');
     this.dispatchEvent(new CustomEvent('videl:activate:error', {
       bubbles: true,

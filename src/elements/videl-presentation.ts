@@ -5,6 +5,7 @@ import { PickOneMixin } from '../mixins/pick-one-mixin';
 import { parseMpd } from '../parser/mpd-parser';
 import { applyMpdUpdate } from '../parser/mpd-merger';
 import type { PlayerState } from '../player-state';
+import type { DrmConfig } from '../lib/drm-config';
 import { VidelBeforeActivateEvent } from '../events';
 import { VidelPeriod } from './videl-period';
 import {
@@ -86,7 +87,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     fullscreen: { type: Boolean, attribute: 'videl-fullscreen', reflect: true },
     // Live-stream update metadata (stamped by the parser from MPD attributes).
     minimumUpdatePeriod: { type: Number, attribute: 'minimum-update-period' },
-    publishTime:         { type: Number, attribute: 'publish-time' },
+    publishTime: { type: Number, attribute: 'publish-time' }
   };
 
   src                        = '';
@@ -130,6 +131,10 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   /** Prevents overlapping concurrent MPD re-fetch requests. */
   #refreshInFlight   = false;
 
+  // ── DRM configuration ──────────────────────────────────────────────────────
+
+  #drmConfig: DrmConfig | null = null;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   connectedCallback(): void {
@@ -170,7 +175,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * Async activation path: ensures population is complete, then fires
    * `videl:before-activate` before activating the first period.
    */
-  private async #onBecomeActive(): Promise<void> {
+  async #onBecomeActive(): Promise<void> {
     if (this.src && !this.hasAttribute('videl-populated')) {
       // No prior prefetch — populate inline first.
       await this.#ensurePopulated();
@@ -188,8 +193,8 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
    * to settle.
    */
-  private async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this);
+  async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this as unknown as Element);
     this.dispatchEvent(event);
     await event.settled;
   }
@@ -198,7 +203,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    * Handle activation failure: revert the `videl-state` attribute and dispatch
    * a `videl:activate:error` event.
    */
-  private #onActivateError(err: unknown): void {
+  #onActivateError(err: unknown): void {
     this.removeAttribute('videl-state');
     this.dispatchEvent(new CustomEvent('videl:activate:error', {
       bubbles: true,
@@ -279,6 +284,13 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
    */
   videlPopulate(): Promise<void> {
     return this.#ensurePopulated();
+  }
+
+  get drmConfig(): DrmConfig | null {
+    return this.#drmConfig;
+  }
+  set drmConfig(v: DrmConfig | null) {
+    this.#drmConfig = v;
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
@@ -466,8 +478,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
       const mup     = subtree.getAttribute('minimum-update-period');
       const pubTime = subtree.getAttribute('publish-time');
-      if (mup)     { self.setAttribute('minimum-update-period', mup); }
-      if (pubTime) { self.setAttribute('publish-time', pubTime); }
+      if (mup) {
+        self.setAttribute('minimum-update-period', mup);
+      }
+      if (pubTime) {
+        self.setAttribute('publish-time', pubTime);
+      }
 
       this.setAttribute('videl-populated', '');
       this.#lastFetchWallTime = Date.now();

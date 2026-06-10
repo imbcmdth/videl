@@ -251,6 +251,72 @@ function buildPeriod(
 }
 
 // ---------------------------------------------------------------------------
+// ContentProtection parsing
+// ---------------------------------------------------------------------------
+// ContentProtection parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parsed ContentProtection data structure for serialization (mirrors the
+ * ContentProtectionInfo interface in videl-adaptation-set.ts).
+ */
+interface ContentProtectionInfo {
+  schemeIdUri: string;
+  value?: string;        // encryption scheme: "cenc" | "cbcs"
+  keyId?: string;        // default_KID in hex (no dashes, lowercase)
+  pssh?: string;         // base64-encoded PSSH box
+  robustness?: string;
+}
+
+/**
+ * Extract and serialize ContentProtection elements from an AdaptationSet or Period.
+ * Returns a JSON array of protection info, or an empty array if none found.
+ */
+function extractContentProtection(adsEl: Element): ContentProtectionInfo[] {
+  const result: ContentProtectionInfo[] = [];
+
+  for (const cpEl of children(adsEl, 'ContentProtection')) {
+    const schemeIdUri = cpEl.getAttribute('schemeIdUri');
+    if (!schemeIdUri) {
+      continue;
+    }
+
+    const info: ContentProtectionInfo = {
+      schemeIdUri
+    };
+
+    // Extract the encryption scheme (value attribute)
+    const value = cpEl.getAttribute('value');
+    if (value) {
+      info.value = value;
+    }
+
+    // Extract robustness level (new in ed.5)
+    const robustness = cpEl.getAttribute('robustness');
+    if (robustness) {
+      info.robustness = robustness;
+    }
+
+    // Extract cenc:default_KID (key ID in hex without dashes)
+    const defaultKidAttr = cpEl.getAttributeNS('urn:mpeg:dash:schema:cenc:2012', 'default_KID');
+    if (defaultKidAttr) {
+      // Normalize: remove dashes, convert to lowercase
+      info.keyId = defaultKidAttr.replace(/-/g, '').toLowerCase();
+    }
+
+    // Extract cenc:pssh (base64 PSSH box)
+    const psshEl = Array.from(cpEl.children).find(c => c.localName === 'pssh' && c.namespaceURI === 'urn:mpeg:dash:schema:cenc:2012');
+    if (psshEl?.textContent) {
+      info.pssh = psshEl.textContent.trim();
+    }
+
+    result.push(info);
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // AdaptationSet → <videl-adaptation-set>
 // ---------------------------------------------------------------------------
 
@@ -298,6 +364,12 @@ function buildAdaptationSet(
   const adsId = ads.getAttribute('id');
   if (adsId) {
     el.setAttribute('dash-id', adsId);
+  }
+
+  // Extract ContentProtection elements and serialize as JSON
+  const protectionData = extractContentProtection(ads);
+  if (protectionData.length > 0) {
+    el.setAttribute('protection', JSON.stringify(protectionData));
   }
 
   const base    = resolveBaseUrl(ads, ctx.base);

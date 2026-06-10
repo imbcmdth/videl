@@ -2,9 +2,11 @@ import playerCss from '../styles/videl-player.css';
 import { ErgoMediaSource, TextSourceBuffer, OffsetTimeRanges } from 'ergo-mse';
 import type { ISourceBuffer } from 'ergo-mse';
 import type { PlayerState } from '../player-state';
+import type { DrmConfig, DrmSystemConfig } from '../lib/drm-config';
 import { VidelBeforeActivateEvent } from '../events';
 import { trace } from '../trace';
 import { VidelAdaptationSet } from './videl-adaptation-set';
+import type { ContentProtectionInfo } from './videl-adaptation-set';
 import { VidelPresentation } from './videl-presentation';
 import { VidelEventStream } from './videl-event-stream';
 
@@ -109,6 +111,19 @@ export class VidelPlayer extends HTMLElement {
   // ── Load lifecycle ────────────────────────────────────────────────────────
 
   #loadAbort: AbortController | null = null;
+
+  // ── DRM (Encrypted Media Extensions) ───────────────────────────────────────
+
+  #drmConfig: DrmConfig | null = null;
+  #mediaKeys: MediaKeys | null = null;
+  #drmSessions = new Map<string, MediaKeySession>(); // initDataHash → session
+  #activeKeySystem: string | null = null;
+  #fairPlayCert: Uint8Array | null = null;
+  #pendingEncryptedEvents: MediaEncryptedEvent[] = [];
+
+  // FairPlay key system IDs (try both legacy and modern forms)
+  static readonly #FAIRPLAY_KEY_SYSTEMS = ['com.apple.fps', 'com.apple.fps.1_0'] as const;
+  static readonly #FAIRPLAY_UUID = '94ce86fb-07ff-4f43-adb8-93d2fa968ca2';
 
   // ── Observers ─────────────────────────────────────────────────────────────
 
@@ -237,6 +252,7 @@ export class VidelPlayer extends HTMLElement {
     this.addEventListener('click',                this.#onPlaylistClick);
     this.#video.addEventListener('seeking', this.#onVideoSeeking);
     this.#video.addEventListener('ended',   this.#onVideoEnded);
+    this.#video.addEventListener('encrypted', this.#onEncrypted);
     this.addEventListener('pointermove',         this.#onPointerActivity);
     this.addEventListener('pointerdown',         this.#onPointerActivity);
     this.addEventListener('pointerleave',        this.#onPointerLeave);
@@ -269,6 +285,7 @@ export class VidelPlayer extends HTMLElement {
     this.removeEventListener('click',                this.#onPlaylistClick);
     this.#video.removeEventListener('seeking', this.#onVideoSeeking);
     this.#video.removeEventListener('ended',   this.#onVideoEnded);
+    this.#video.removeEventListener('encrypted', this.#onEncrypted);
     this.removeEventListener('pointermove',         this.#onPointerActivity);
     this.removeEventListener('pointerdown',         this.#onPointerActivity);
     this.removeEventListener('pointerleave',        this.#onPointerLeave);
@@ -302,7 +319,7 @@ export class VidelPlayer extends HTMLElement {
    * Async activation path: fires `videl:before-activate` before calling
    * #video.play().
    */
-  private async #onBecomeActive(): Promise<void> {
+  async #onBecomeActive(): Promise<void> {
     await this.#fireBeforeActivate();
     // Only call #video.play() here — NOT this.play() — breaking any potential loop.
     this.#video.play().catch(() => {});
@@ -312,7 +329,7 @@ export class VidelPlayer extends HTMLElement {
    * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
    * to settle.
    */
-  private async #fireBeforeActivate(): Promise<void> {
+  async #fireBeforeActivate(): Promise<void> {
     const event = new VidelBeforeActivateEvent(this as unknown as Element);
     this.dispatchEvent(event);
     await event.settled;
@@ -322,7 +339,7 @@ export class VidelPlayer extends HTMLElement {
    * Handle activation failure: revert the `videl-state` attribute and dispatch
    * a `videl:activate:error` event.
    */
-  private #onActivateError(err: unknown): void {
+  #onActivateError(err: unknown): void {
     this.removeAttribute('videl-state');
     this.dispatchEvent(new CustomEvent('videl:activate:error', {
       bubbles: true,
@@ -354,14 +371,10 @@ export class VidelPlayer extends HTMLElement {
       this.#video.play().catch(() => {});
     }
     return new Promise<void>((resolve, reject) => {
-      const onPlaying = () => { cleanup(); resolve(); };
-      const onError   = () => { cleanup(); reject(this.#video.error ?? new Error('play failed')); };
-      const cleanup   = () => {
-        this.#video.removeEventListener('playing', onPlaying);
-        this.#video.removeEventListener('error',   onError);
-      };
-      this.#video.addEventListener('playing', onPlaying, { once: true });
-      this.#video.addEventListener('error',   onError,   { once: true });
+      this.#video.addEventListener('playing', () => resolve(), { once: true });
+      this.#video.addEventListener('error', () => {
+        reject(this.#video.error ?? new Error('play failed'));
+      }, { once: true });
     });
   }
 
@@ -427,6 +440,13 @@ export class VidelPlayer extends HTMLElement {
 
   get nativeVideo(): HTMLVideoElement {
     return this.#video;
+  }
+
+  get drmConfig(): DrmConfig | null {
+    return this.#drmConfig;
+  }
+  set drmConfig(v: DrmConfig | null) {
+    this.#drmConfig = v;
   }
 
   // ── Playlist helpers ──────────────────────────────────────────────────────
@@ -665,6 +685,18 @@ export class VidelPlayer extends HTMLElement {
     }
 
     presEl.setAttribute('videl-state', 'active');
+
+    // Setup DRM if any adaptation set has protection data
+    const protectionData = adsSets.flatMap(ads => ads.protectionData);
+    if (protectionData.length > 0) {
+      await this.#setupDrm(presEl, protectionData, signal);
+      // Drain pending encrypted events now that MediaKeys is ready
+      for (const evt of this.#pendingEncryptedEvents) {
+        await this.#processEncryptedEvent(evt);
+      }
+      this.#pendingEncryptedEvents = [];
+    }
+
     // Move the active presentation into the stage slot so its overlay covers
     // only the video area, never the playlist column.
     presEl.setAttribute('slot', 'stage');
@@ -719,6 +751,361 @@ export class VidelPlayer extends HTMLElement {
       this.#ergoMse = null;
     }
     this.#sourceBuffers.clear();
+
+    // Teardown DRM sessions and MediaKeys
+    for (const session of this.#drmSessions.values()) {
+      session.close().catch(() => {});
+    }
+    this.#drmSessions.clear();
+    this.#pendingEncryptedEvents = [];
+    if (this.#mediaKeys) {
+      this.#video.setMediaKeys(null).catch(() => {});
+      this.#mediaKeys = null;
+    }
+    this.#activeKeySystem = null;
+    this.#fairPlayCert = null;
+  }
+
+  // ── DRM setup ─────────────────────────────────────────────────────────────
+
+  async #setupDrm(
+    presEl: Element,
+    protectionData: ContentProtectionInfo[],
+    signal: AbortSignal
+  ): Promise<void> {
+    const drmConfig = (presEl instanceof VidelPresentation) ?
+      presEl.drmConfig ?? this.#drmConfig :
+      this.#drmConfig;
+
+    if (!drmConfig) {
+      return; // No DRM config provided, skip setup
+    }
+
+    // Filter to actual DRM system entries (skip the urn:mpeg:dash:mp4protection:2011 scheme-type entry)
+    const keySystemEntries = protectionData.filter(cp => cp.schemeIdUri.startsWith('urn:uuid:'));
+
+    if (keySystemEntries.length === 0) {
+      return; // No key systems to set up
+    }
+
+    // Extract key system URIs and map to EME key system strings
+    const candidates = this.#mapKeySystemUris(keySystemEntries.map(e => e.schemeIdUri));
+
+    for (const keySystem of candidates) {
+      if (!drmConfig[keySystem]) {
+        continue;
+      }
+
+      try {
+        const configs = this.#buildMediaKeySystemConfigs(protectionData, keySystem);
+        const access = await navigator.requestMediaKeySystemAccess(keySystem, configs);
+        this.#mediaKeys = await access.createMediaKeys();
+        await this.#video.setMediaKeys(this.#mediaKeys);
+        this.#activeKeySystem = keySystem;
+
+        trace(this, 'mse', 'media-keys-created', { keySystem });
+
+        // FairPlay: fetch and set server certificate
+        if (this.#isFairPlay()) {
+          const fpConfig = drmConfig[keySystem];
+          let cert: Uint8Array<ArrayBuffer> | null = fpConfig?.certificate ?
+            new Uint8Array(fpConfig.certificate) :
+            null;
+          if (!cert && fpConfig?.certificateUrl) {
+            const resp = await fetch(fpConfig.certificateUrl, { signal });
+            cert = new Uint8Array(await resp.arrayBuffer());
+          }
+          if (cert) {
+            await this.#mediaKeys.setServerCertificate(cert.buffer as ArrayBuffer);
+            this.#fairPlayCert = cert;
+          }
+        }
+
+        this.dispatchEvent(new CustomEvent('videl:drm:ready', {
+          bubbles: true,
+          composed: true,
+          detail: { keySystem }
+        }));
+
+        return; // Success
+      } catch {
+        // Try next key system
+        continue;
+      }
+    }
+
+    // No key system succeeded
+    this.dispatchEvent(new CustomEvent('videl:drm:error', {
+      bubbles: true,
+      composed: true,
+      detail: { error: new Error('No supported key system found') }
+    }));
+  }
+
+  #mapKeySystemUris(uris: string[]): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+
+    for (const uri of uris) {
+      if (uri === 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed') {
+        if (!seen.has('com.widevine.alpha')) {
+          result.push('com.widevine.alpha');
+          seen.add('com.widevine.alpha');
+        }
+      } else if (uri === 'urn:uuid:9a04f079-9840-4286-ab92-e65be0885f95') {
+        if (!seen.has('com.microsoft.playready')) {
+          result.push('com.microsoft.playready');
+          seen.add('com.microsoft.playready');
+        }
+      } else if (uri === 'urn:uuid:e2719d58-a985-b3c9-781a-b030af78d30e') {
+        if (!seen.has('org.w3.clearkey')) {
+          result.push('org.w3.clearkey');
+          seen.add('org.w3.clearkey');
+        }
+      } else if (uri === `urn:uuid:${VidelPlayer.#FAIRPLAY_UUID}`) {
+        // Add both legacy and modern FairPlay key system IDs
+        for (const ks of VidelPlayer.#FAIRPLAY_KEY_SYSTEMS) {
+          if (!seen.has(ks)) {
+            result.push(ks);
+            seen.add(ks);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  #buildMediaKeySystemConfigs(
+    protectionData: ContentProtectionInfo[],
+    keySystem: string
+  ): MediaKeySystemConfiguration[] {
+    const isFairPlay = this.#isFairPlaySystem(keySystem);
+    const encryptionScheme = protectionData.some(p => p.value === 'cbcs') ? 'cbcs' : 'cenc';
+    const initDataTypes = isFairPlay ? ['skd'] : ['cenc'];
+
+    const videoCodecs: MediaKeySystemMediaCapability[] = [
+      { contentType: 'video/mp4; codecs="avc1.42E01E"', encryptionScheme: isFairPlay ? undefined : encryptionScheme }
+    ];
+
+    const audioCodecs: MediaKeySystemMediaCapability[] = [
+      { contentType: 'audio/mp4; codecs="mp4a.40.2"', encryptionScheme: isFairPlay ? undefined : encryptionScheme }
+    ];
+
+    return [{
+      initDataTypes,
+      videoCapabilities: videoCodecs,
+      audioCapabilities: audioCodecs,
+      persistentState: 'not-allowed',
+      distinctiveIdentifier: 'not-allowed',
+      sessionTypes: ['temporary']
+    }];
+  }
+
+  #isFairPlay(): boolean {
+    return this.#activeKeySystem ? this.#isFairPlaySystem(this.#activeKeySystem) : false;
+  }
+
+  #isFairPlaySystem(keySystem: string): boolean {
+    return (VidelPlayer.#FAIRPLAY_KEY_SYSTEMS as readonly string[]).includes(keySystem);
+  }
+
+  #onEncrypted = async (event: MediaEncryptedEvent): Promise<void> => {
+    if (!this.#mediaKeys) {
+      this.#pendingEncryptedEvents.push(event);
+      return;
+    }
+    await this.#processEncryptedEvent(event);
+  };
+
+  async #processEncryptedEvent(event: MediaEncryptedEvent): Promise<void> {
+    const { initDataType } = event;
+    // initData is typed as ArrayBuffer | null in the EME spec; guard the null case.
+    if (!event.initData) {
+      return;
+    }
+    const initData: ArrayBuffer = event.initData;
+
+    // Deduplicate by hashing initData
+    const key = `${initDataType}:${this.#hashInitData(initData)}`;
+    if (this.#drmSessions.has(key)) {
+      return;
+    }
+
+    let processedInitData: ArrayBuffer = initData;
+
+    // FairPlay: transform initData into envelope format
+    if (this.#isFairPlay() && initDataType === 'skd') {
+      const config = this.#activeDrmSystemConfig();
+      if (config?.initDataTransform) {
+        const transformed = await config.initDataTransform(
+          new Uint8Array(initData),
+          initDataType,
+          this.#fairPlayCert
+        );
+        processedInitData = transformed.buffer as ArrayBuffer;
+      } else {
+        processedInitData = this.#defaultFairPlayTransform(
+          new Uint8Array(initData),
+          this.#fairPlayCert
+        ).buffer as ArrayBuffer;
+      }
+    }
+
+    const session = this.#mediaKeys!.createSession('temporary');
+    this.#drmSessions.set(key, session);
+
+    session.addEventListener('message', this.#onKeyMessage);
+    await session.generateRequest(initDataType, processedInitData);
+
+    this.dispatchEvent(new CustomEvent('videl:drm:session-created', {
+      bubbles: true,
+      composed: true,
+      detail: { sessionId: session.sessionId }
+    }));
+  }
+
+  #defaultFairPlayTransform(
+    initData: Uint8Array,
+    cert: Uint8Array | null
+  ): Uint8Array {
+    const skdUrl = new TextDecoder().decode(initData);
+    const contentId = skdUrl.startsWith('skd://') ? skdUrl.slice(6) : skdUrl;
+    const contentIdBytes = new TextEncoder().encode(contentId);
+    const certBytes = cert ?? new Uint8Array(0);
+
+    const total = 4 + initData.length + 4 + contentIdBytes.length + 4 + certBytes.length;
+    const result = new Uint8Array(total);
+    const view = new DataView(result.buffer);
+    let offset = 0;
+
+    view.setUint32(offset, initData.length, true);
+    offset += 4;
+    result.set(initData, offset);
+    offset += initData.length;
+    view.setUint32(offset, contentIdBytes.length, true);
+    offset += 4;
+    result.set(contentIdBytes, offset);
+    offset += contentIdBytes.length;
+    view.setUint32(offset, certBytes.length, true);
+    offset += 4;
+    result.set(certBytes, offset);
+
+    return result;
+  }
+
+  #onKeyMessage = async (event: MediaKeyMessageEvent): Promise<void> => {
+    const session = event.target as MediaKeySession;
+    const config = this.#activeDrmSystemConfig();
+
+    if (!config?.serverUrl && !config?.keys) {
+      this.dispatchEvent(new CustomEvent('videl:drm:error', {
+        bubbles: true,
+        composed: true,
+        detail: { error: new Error('No license server URL or ClearKey keys configured') }
+      }));
+      return;
+    }
+
+    try {
+      let license: ArrayBuffer;
+
+      // ClearKey: generate synthetic JSON license from keys map
+      if (this.#activeKeySystem === 'org.w3.clearkey' && config.keys) {
+        license = this.#generateClearKeyLicense(config.keys);
+      } else if (config.serverUrl) {
+        // Normal license request
+        license = await this.#fetchLicense(event.message, config);
+      } else {
+        throw new Error('No license delivery mechanism configured');
+      }
+
+      await session.update(license);
+    } catch (err) {
+      this.dispatchEvent(new CustomEvent('videl:drm:error', {
+        bubbles: true,
+        composed: true,
+        detail: { error: err instanceof Error ? err : new Error(String(err)) }
+      }));
+    }
+  };
+
+  #generateClearKeyLicense(keys: Record<string, string>): ArrayBuffer {
+    const keyPairs = [];
+
+    for (const [keyIdHex, keyHex] of Object.entries(keys)) {
+      const keyId = Uint8Array.from(keyIdHex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+      const key   = Uint8Array.from(keyHex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+      keyPairs.push({ kty: 'oct', k: this.#toBase64Url(key), kid: this.#toBase64Url(keyId) });
+    }
+
+    return new TextEncoder().encode(JSON.stringify({ keys: keyPairs, type: 'temporary' })).buffer;
+  }
+
+  async #fetchLicense(challenge: ArrayBuffer, config: DrmSystemConfig): Promise<ArrayBuffer> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+      ...config.httpRequestHeaders
+    };
+
+    const reqContext = { url: config.serverUrl!, headers, body: challenge };
+
+    if (config.requestFilter) {
+      await config.requestFilter(reqContext);
+    }
+
+    const resp = await fetch(reqContext.url, {
+      method: 'POST',
+      headers: reqContext.headers,
+      body: reqContext.body,
+      signal: this.#loadAbort?.signal
+    });
+
+    if (!resp.ok) {
+      throw new Error(`License request failed: HTTP ${resp.status}`);
+    }
+
+    const rawBody = await resp.arrayBuffer();
+
+    // Parse the license response
+    if (config.parseLicenseResponse) {
+      return await config.parseLicenseResponse(rawBody);
+    }
+
+    return rawBody;
+  }
+
+  #activeDrmSystemConfig(): DrmSystemConfig | null {
+    if (!this.#activeKeySystem) {
+      return null;
+    }
+    return this.#resolveDrmConfig()?.[this.#activeKeySystem] ?? null;
+  }
+
+  #resolveDrmConfig(): DrmConfig | null {
+    const pres = this.#activePresentation;
+    return (pres instanceof VidelPresentation ? pres.drmConfig : null) ?? this.#drmConfig ?? null;
+  }
+
+  #hashInitData(initData: ArrayBuffer): string {
+    const bytes = new Uint8Array(initData);
+    let hash = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      hash = ((hash << 5) - hash) + bytes[i];
+      hash |= 0; // convert to 32-bit integer
+    }
+    return hash.toString(36);
+  }
+
+  #toBase64Url(bytes: Uint8Array): string {
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
   }
 
   // ── Pump ──────────────────────────────────────────────────────────────────

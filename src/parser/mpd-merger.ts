@@ -23,8 +23,8 @@
  * Returns true if any structural change was applied (useful for tests / tracing).
  */
 export function applyMpdUpdate(
-  existing: HTMLElement,  // live <videl-presentation> DOM node
-  newTree:  HTMLElement,  // freshly-parsed <videl-presentation> from parseMpd()
+  existing: HTMLElement, // live <videl-presentation> DOM node
+  newTree: HTMLElement   // freshly-parsed <videl-presentation> from parseMpd()
 ): boolean {
   let changed = false;
 
@@ -35,7 +35,7 @@ export function applyMpdUpdate(
     'min-buffer-time',
     'minimum-update-period',
     'publish-time',
-    'no-seek',
+    'no-seek'
   ];
   for (const attr of topLevelAttrs) {
     const newVal = newTree.getAttribute(attr);

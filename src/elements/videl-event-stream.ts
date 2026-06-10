@@ -76,12 +76,12 @@ export class VidelEventStream extends LitElement {
   }
 
   static properties = {
-    schemeIdUri:             { type: String, attribute: 'scheme-id-uri' },
-    value:                   { type: String },
-    timescale:               { type: Number },
-    presentationTimeOffset:  { type: Number, attribute: 'presentation-time-offset' },
-    periodStart:             { type: Number, attribute: 'period-start' },
-    slot:                    { type: String, reflect: true },
+    schemeIdUri: { type: String, attribute: 'scheme-id-uri' },
+    value: { type: String },
+    timescale: { type: Number },
+    presentationTimeOffset: { type: Number, attribute: 'presentation-time-offset' },
+    periodStart: { type: Number, attribute: 'period-start' },
+    slot: { type: String, reflect: true }
   };
 
   schemeIdUri            = '';
@@ -133,9 +133,7 @@ export class VidelEventStream extends LitElement {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childEvents(): VidelEvent[] {
-    return Array.from(this.children).filter(
-      el => el.tagName.toLowerCase() === 'videl-event'
-    ) as VidelEvent[];
+    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-event') as VidelEvent[];
   }
 
   /**
@@ -158,9 +156,9 @@ export class VidelEventStream extends LitElement {
     // sets timestampOffset after appending the init segment).
     this.sourceBuffer.timestampOffset = this.periodStart;
 
-    this.sourceBuffer.append(bytes).catch(err =>
-      console.warn('[videl-event-stream] context append failed:', err)
-    );
+    this.sourceBuffer.append(bytes).catch(err => {
+      console.warn('[videl-event-stream] context append failed:', err); // eslint-disable-line no-console
+    });
 
     this.setAttribute('videl-context-sent', '');
   }

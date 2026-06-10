@@ -86,6 +86,7 @@ async function runUpdateTest(
 
       rep.videlUpdate({
         currentTime,
+        currentWallTime: currentTime,
         bandwidth: 1e6,
         playbackRate: 1,
         buffered: {
@@ -183,6 +184,7 @@ test('criterion 5 — sourceBuffer is forwarded to segment before it is slotted'
 
     rep.videlUpdate({
       currentTime: 0,
+      currentWallTime: 0,
       bandwidth: 1e6,
       playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
@@ -289,7 +291,7 @@ test('criterion 7 — deactivation cascades synchronously to all child segments'
     await new Promise<void>(r => setTimeout(r, 400));
 
     rep.videlUpdate({
-      currentTime: 0, bandwidth: 1e6, playbackRate: 1,
+      currentTime: 0, currentWallTime: 0, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
@@ -336,7 +338,7 @@ test('criterion 8 — videl:done from child does NOT advance to next segment', a
     await new Promise<void>(r => setTimeout(r, 400));
 
     rep.videlUpdate({
-      currentTime: 0, bandwidth: 1e6, playbackRate: 1,
+      currentTime: 0, currentWallTime: 0, bandwidth: 1e6, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
 
