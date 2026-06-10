@@ -92,7 +92,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   static styles = css`${unsafeCSS(representationCss)}`;
 
   static properties = {
-    repId: { type: String,  attribute: 'id' },
+    repId: { type: String,  attribute: 'dash-id' },
     bandwidth: { type: Number },
     width: { type: Number },
     height: { type: Number },

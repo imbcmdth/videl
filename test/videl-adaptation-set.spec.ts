@@ -70,7 +70,7 @@ const PREAMBLE = `
   }
   function makeRep(id, bandwidth, mimeType, codecs) {
     const rep = document.createElement('videl-representation');
-    rep.setAttribute('id', id);
+    rep.setAttribute('dash-id', id);
     rep.setAttribute('bandwidth', String(bandwidth));
     if (mimeType) rep.setAttribute('mime-type', mimeType);
     if (codecs)   rep.setAttribute('codecs', codecs);
@@ -101,7 +101,7 @@ test('criterion 2 — sourceBuffer forwarded to all representations on activatio
 
     const reps = [500_000, 1_500_000, 4_000_000].map((bw, i) => {
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', `rep-${i}`);
+      r.setAttribute('dash-id', `rep-${i}`);
       r.setAttribute('bandwidth', String(bw));
       ads.appendChild(r);
       return r;
@@ -132,7 +132,7 @@ test('criterion 3 — ABR selects highest representation not exceeding bandwidth
     ['rep-500', 'rep-1500', 'rep-4000'].forEach((id, i) => {
       const bws = [500_000, 1_500_000, 4_000_000];
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String(bws[i]));
       ads.appendChild(r);
     });
@@ -154,21 +154,21 @@ test('criterion 3 — ABR selects highest representation not exceeding bandwidth
       bandwidth: 600_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atLow = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    const atLow = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
 
     // bandwidth=2M → target=1.6M → rep-500(500k ≤ 1.6M ✓), rep-1500(1.5M ≤ 1.6M ✓), rep-4000(4M > 1.6M ✗)
     ads.videlUpdate({
       bandwidth: 2_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atMid = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    const atMid = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
 
     // bandwidth=6M → target=4.8M → all three eligible → highest = rep-4000
     ads.videlUpdate({
       bandwidth: 6_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    const atHigh = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    const atHigh = ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
 
     return { atLow, atMid, atHigh };
   });
@@ -193,7 +193,7 @@ test('criterion 7 — abrSafetyFactor is configurable', async ({ page }) => {
     ['rep-500', 'rep-1500', 'rep-4000'].forEach((id, i) => {
       const bws = [500_000, 1_500_000, 4_000_000];
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String(bws[i]));
       ads.appendChild(r);
     });
@@ -212,7 +212,7 @@ test('criterion 7 — abrSafetyFactor is configurable', async ({ page }) => {
       bandwidth: 500_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 },
     });
-    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
   });
 
   // With factor=0.8 this would have fallen back to rep-500 anyway, but the
@@ -234,7 +234,7 @@ test('criterion 4 — ABR switch fires videl:representation:switched', async ({ 
     ['rep-500', 'rep-1500', 'rep-4000'].forEach((id, i) => {
       const bws = [500_000, 1_500_000, 4_000_000];
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String(bws[i]));
       ads.appendChild(r);
     });
@@ -289,7 +289,7 @@ test('criterion 5 — previous representation is deactivated when ABR switches',
     ['rep-500', 'rep-1500'].forEach((id, i) => {
       const bws = [500_000, 1_500_000];
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String(bws[i]));
       ads.appendChild(r);
       reps.push(r);
@@ -334,7 +334,7 @@ test('criterion 6 — update() is forwarded to the active representation', async
     document.body.appendChild(ads);
 
     const rep = document.createElement('videl-representation') as any;
-    rep.setAttribute('id', 'rep-1500');
+    rep.setAttribute('dash-id', 'rep-1500');
     rep.setAttribute('bandwidth', '1500000');
     ads.appendChild(rep);
 
@@ -377,7 +377,7 @@ test('criterion 8 — deactivation cascades to all child representations', async
 
     const reps: any[] = ['rep-500', 'rep-1500'].map((id, i) => {
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String([500_000, 1_500_000][i]));
       ads.appendChild(r);
       return r;
@@ -453,10 +453,10 @@ test('criterion 3 (safety factor) — rep at exactly bandwidth × 0.8 is eligibl
     document.body.appendChild(ads);
 
     const rep800 = document.createElement('videl-representation') as any;
-    rep800.setAttribute('id', 'rep-800');
+    rep800.setAttribute('dash-id', 'rep-800');
     rep800.setAttribute('bandwidth', '800000');
     const rep1500 = document.createElement('videl-representation') as any;
-    rep1500.setAttribute('id', 'rep-1500');
+    rep1500.setAttribute('dash-id', 'rep-1500');
     rep1500.setAttribute('bandwidth', '1500000');
     ads.appendChild(rep800);
     ads.appendChild(rep1500);
@@ -473,7 +473,7 @@ test('criterion 3 (safety factor) — rep at exactly bandwidth × 0.8 is eligibl
     ads.videlUpdate({ bandwidth: 1_000_000, currentTime: 0, playbackRate: 1,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
-    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
   });
 
   // 800k ≤ 1M*0.8=800k → eligible; 1500k > 800k → not eligible → rep-800 wins.
@@ -494,7 +494,7 @@ test('criterion 3 (playbackRate) — bandwidth target is divided by playbackRate
 
     ['rep-500', 'rep-1500'].forEach((id, i) => {
       const r = document.createElement('videl-representation') as any;
-      r.setAttribute('id', id);
+      r.setAttribute('dash-id', id);
       r.setAttribute('bandwidth', String([500_000, 1_500_000][i]));
       ads.appendChild(r);
     });
@@ -511,7 +511,7 @@ test('criterion 3 (playbackRate) — bandwidth target is divided by playbackRate
     ads.videlUpdate({ bandwidth: 2_000_000, currentTime: 0, playbackRate: 2,
       buffered: { length: 0, start: () => 0, end: () => 0 } });
 
-    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('id');
+    return ads.querySelector('videl-representation[videl-state="active"]')?.getAttribute('dash-id');
   });
 
   // target = 2M * 0.8 / 2 = 800k; rep-500(500k ≤ 800k ✓), rep-1500(1.5M > 800k ✗) → rep-500

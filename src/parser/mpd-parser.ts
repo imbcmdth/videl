@@ -177,7 +177,7 @@ function buildPeriod(
   const startStr = period.getAttribute('start');
   const durStr   = period.getAttribute('duration');
 
-  el.setAttribute('period-id', id);
+  el.setAttribute('dash-id', id);
 
   // Period@start is optional; when absent the period begins where the previous
   // one ended (cumulative). Only the first period without @start begins at 0.
@@ -284,6 +284,11 @@ function buildAdaptationSet(
   // Compute display label following priority: Label child element, label attribute, lang attribute, contentType, 'track'
   const displayLabel = computeAdaptationSetLabel(ads, lang, contentType);
   el.setAttribute('label', displayLabel);
+
+  const adsId = ads.getAttribute('id');
+  if (adsId) {
+    el.setAttribute('dash-id', adsId);
+  }
 
   const base    = resolveBaseUrl(ads, ctx.base);
   const adsST   = readSegTemplate(ads);
@@ -408,7 +413,7 @@ function buildEvent(ev: Element): HTMLElement {
     el.setAttribute('duration', ev.getAttribute('duration')!);
   }
   if (ev.hasAttribute('id')) {
-    el.setAttribute('id', ev.getAttribute('id')!);
+    el.setAttribute('dash-id', ev.getAttribute('id')!);
   }
   if (ev.hasAttribute('messageData')) {
     el.setAttribute('message-data', ev.getAttribute('messageData')!);
@@ -452,7 +457,7 @@ function buildRepresentation(
   const mimeType  = rep.getAttribute('mimeType')  ?? ctx.parentMimeType;
   const codecs    = rep.getAttribute('codecs')    ?? ctx.parentCodecs;
 
-  el.setAttribute('id',        id);
+  el.setAttribute('dash-id',   id);
   el.setAttribute('bandwidth', String(bandwidth));
   if (width)    {
     el.setAttribute('width',    width);

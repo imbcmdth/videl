@@ -35,6 +35,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     lang: { type: String },
     slot: { type: String,  reflect: true },
     abrSafetyFactor: { type: Number,  attribute: 'abr-safety-factor' },
+    dashId: { type: String, attribute: 'dash-id' },
     /**
      * When set, ABR is disabled and this representation ID is always selected.
      * Set by a left-click on a video representation row; cleared automatically
@@ -56,6 +57,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   lang            = '';
   slot            = '';
   abrSafetyFactor = 0.8;
+  dashId          = '';
   forcedRepId     = '';
   videlTextNone   = false;
 
@@ -196,7 +198,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
 
     // Forced / pinned rep: bypass ABR.
     if (this.forcedRepId) {
-      const forced = reps.find(r => r.getAttribute('id') === this.forcedRepId);
+      const forced = reps.find(r => r.getAttribute('dash-id') === this.forcedRepId);
       if (forced) {
         return forced;
       }
@@ -244,8 +246,8 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       }
     }
 
-    const fromId = prev ? (prev.repId ?? prev.getAttribute('id') ?? null) : null;
-    const toId   = target.repId ?? target.getAttribute('id') ?? null;
+    const fromId = prev ? (prev.repId ?? prev.getAttribute('dash-id') ?? null) : null;
+    const toId   = target.repId ?? target.getAttribute('dash-id') ?? null;
 
     trace(this, 'abr', fromId ? 'switch' : 'initial-select', {
       contentType: this.contentType,
@@ -280,7 +282,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   /** Stamp / remove the `videl-pinned` attribute on representations to match forcedRepId. */
   #updatePinnedAttrs(): void {
     for (const rep of this.#childRepresentations) {
-      const isForced = rep.getAttribute('id') === this.forcedRepId && !!this.forcedRepId;
+      const isForced = rep.getAttribute('dash-id') === this.forcedRepId && !!this.forcedRepId;
       if (isForced) {
         rep.setAttribute('videl-pinned', '');
       } else          {
@@ -302,7 +304,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
       return;
     }
 
-    const repId = rep.getAttribute('id') ?? '';
+    const repId = rep.getAttribute('dash-id') ?? '';
     this.setAttribute('forced-rep', repId); // triggers Lit update + stores forcedRepId
     this.#updatePinnedAttrs();
 
@@ -331,7 +333,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     }
 
     const wasActive = rep.getAttribute('videl-state') === 'active';
-    const wasForced = rep.getAttribute('id') === this.forcedRepId;
+    const wasForced = rep.getAttribute('dash-id') === this.forcedRepId;
 
     rep.remove();
     if (wasForced) {

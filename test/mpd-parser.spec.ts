@@ -61,14 +61,14 @@ test('criterion 1 — produces videl-presentation with mediaPresentationDuration
 // Criterion 2 — Periods → <videl-period> with period-id, start, duration
 // (multiperiod-segment-template.mpd: 2 periods, id="1"&"2", PT15S each)
 // ---------------------------------------------------------------------------
-test('criterion 2 — each videl-period has correct period-id, start, duration', async ({ page }) => {
+test('criterion 2 — each videl-period has correct dash-id, start, duration', async ({ page }) => {
   const xml = fixtureXml('multiperiod-segment-template.mpd');
   const result = await page.evaluate(async (xml: string) => {
     const { parseMpd } = await import('/dist/index.js');
     const pres = parseMpd(xml, 'https://example.com/');
     const periods = [...pres.querySelectorAll('videl-period')];
     return periods.map(p => ({
-      id:       p.getAttribute('period-id'),
+      id:       p.getAttribute('dash-id'),
       start:    p.getAttribute('start'),
       duration: p.getAttribute('duration'),
     }));
@@ -460,7 +460,7 @@ test('criterion 14 — multi-period MPD produces videl-period children in manife
     const { parseMpd } = await import('/dist/index.js');
     const pres    = parseMpd(xml, 'https://example.com/');
     const periods = [...pres.querySelectorAll(':scope > videl-period')];
-    return periods.map(p => p.getAttribute('period-id'));
+    return periods.map(p => p.getAttribute('dash-id'));
   }, xml);
 
   expect(result).toEqual(['0', '1', '2', '3', '4']);
@@ -482,7 +482,7 @@ test('criterion 15 — $RepresentationID$ and $Bandwidth$ expanded in init URL a
       .find(a => a.getAttribute('content-type') === 'video')!;
     const rep     = videoAds.querySelector('videl-representation')!;
     return {
-      id:                   rep.getAttribute('id'),
+      id:                   rep.getAttribute('dash-id'),
       initUrl:              rep.getAttribute('initialization-url'),
       segmentTemplateMedia: rep.getAttribute('segment-template-media'),
     };

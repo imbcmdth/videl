@@ -55,7 +55,7 @@ export class VidelEvent extends LitElement {
   static properties = {
     presentationTime: { type: Number, attribute: 'presentation-time' },
     duration:         { type: Number },
-    eventId:          { type: Number, attribute: 'id' },
+    eventId:          { type: Number, attribute: 'dash-id' },
     messageData:      { type: String, attribute: 'message-data' },
     slot:             { type: String, reflect: true },
   };
@@ -136,8 +136,8 @@ export class VidelEvent extends LitElement {
     const dur = this.hasAttribute('duration')
       ? ` duration="${this.getAttribute('duration')}"`
       : '';
-    const id  = this.hasAttribute('id')
-      ? ` id="${this.getAttribute('id')}"`
+    const id  = this.hasAttribute('dash-id')
+      ? ` id="${this.getAttribute('dash-id')}"`
       : '';
     const md  = this.messageData
       ? ` messageData="${this.messageData}"`

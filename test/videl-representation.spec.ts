@@ -447,14 +447,14 @@ test('rendition A→B→A switch: each activation re-sends init to shared Source
 
     // Two representations at different bitrates.
     const repA = document.createElement('videl-representation') as any;
-    repA.setAttribute('id', 'rep-a');
+    repA.setAttribute('dash-id', 'rep-a');
     repA.setAttribute('bandwidth', '500000');
     repA.setAttribute('initialization-url', '/fixtures/init-a.mp4');
     repA.setAttribute('mime-type', 'video/mp4');
     repA.setAttribute('codecs', 'avc1.64001e');
 
     const repB = document.createElement('videl-representation') as any;
-    repB.setAttribute('id', 'rep-b');
+    repB.setAttribute('dash-id', 'rep-b');
     repB.setAttribute('bandwidth', '2000000');
     repB.setAttribute('initialization-url', '/fixtures/init-b.mp4');
     repB.setAttribute('mime-type', 'video/mp4');

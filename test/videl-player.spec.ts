@@ -292,8 +292,8 @@ test('criterion 2 — changing src closes the previous MediaSource and loads fre
     await new Promise<void>(r => setTimeout(r, 1000));
 
     const firstPres = player.querySelector('videl-presentation');
-    const firstId   = firstPres?.getAttribute('period-id') ||
-                      firstPres?.querySelector('videl-period')?.getAttribute('period-id');
+    const firstId   = firstPres?.getAttribute('dash-id') ||
+                      firstPres?.querySelector('videl-period')?.getAttribute('dash-id');
 
     // Switch source.
     player.setAttribute('src', '/stream2.mpd');

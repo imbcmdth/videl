@@ -26,7 +26,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   static styles = css`${unsafeCSS(periodCss)}`;
 
   static properties = {
-    periodId: { type: String,  attribute: 'period-id' },
+    periodId: { type: String,  attribute: 'dash-id' },
     start: { type: Number },
     duration: { type: Number },
     slot: { type: String,  reflect: true },

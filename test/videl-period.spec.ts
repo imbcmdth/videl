@@ -43,7 +43,7 @@ const STUB_ADS = `
 const MAKE_PERIOD = `
   function makePeriod(periodId, start, duration) {
     const p = document.createElement('videl-period');
-    p.setAttribute('period-id', periodId);
+    p.setAttribute('dash-id', periodId);
     p.setAttribute('start', String(start));
     if (duration !== undefined && duration !== null) {
       p.setAttribute('duration', String(duration));
@@ -80,7 +80,7 @@ test('criterion 1 — video and audio adaptation sets are both activated on slot
     `}`);
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     period.setAttribute('duration', '30');
     document.body.appendChild(period);
@@ -114,7 +114,7 @@ test('criterion 2 — video, audio, and text adaptation sets are all activated',
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     document.body.appendChild(period);
 
@@ -149,7 +149,7 @@ test('criterion 3 — only first video child is activated when two video childre
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     document.body.appendChild(period);
 
@@ -181,7 +181,7 @@ test('criterion 3a — slot=next preloads one adaptation set per content-type', 
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     document.body.appendChild(period);
 
@@ -213,7 +213,7 @@ test('criterion 3b — second video child does not receive slot=next when first 
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     document.body.appendChild(period);
 
@@ -245,7 +245,7 @@ test('criterion 5 — update() is forwarded to all active adaptation sets', asyn
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     period.setAttribute('duration', '60');
     document.body.appendChild(period);
@@ -287,7 +287,7 @@ test('criterion 6 — videl:done fires with periodId when period ends', async ({
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'my-period');
+    period.setAttribute('dash-id', 'my-period');
     period.setAttribute('start', '10');
     period.setAttribute('duration', '20'); // ends at t=30
     document.body.appendChild(period);
@@ -336,7 +336,7 @@ test('criterion 8 — no videl:done when duration attribute is absent', async ({
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'open-ended');
+    period.setAttribute('dash-id', 'open-ended');
     period.setAttribute('start', '0');
     // NO duration set
     document.body.appendChild(period);
@@ -372,7 +372,7 @@ test('criterion 7 — removing slot deactivates all child adaptation sets synchr
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     period.setAttribute('duration', '30');
     document.body.appendChild(period);
@@ -410,7 +410,7 @@ test('criterion 9 — first child in DOM order is activated regardless of start 
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p0');
+    period.setAttribute('dash-id', 'p0');
     period.setAttribute('start', '0');
     document.body.appendChild(period);
 
@@ -418,10 +418,8 @@ test('criterion 9 — first child in DOM order is activated regardless of start 
     // but the first in DOM order should always be chosen.
     const first = document.createElement('videl-adaptation-set') as any;
     first.setAttribute('content-type', 'video');
-    first.setAttribute('id', 'first');
     const second = document.createElement('videl-adaptation-set') as any;
     second.setAttribute('content-type', 'video');
-    second.setAttribute('id', 'second');
 
     period.appendChild(first);
     period.appendChild(second);
@@ -447,7 +445,7 @@ test('criterion 6 (once) — videl:done fires exactly once even across many tick
     await import('/dist/index.js');
 
     const period = document.createElement('videl-period') as any;
-    period.setAttribute('period-id', 'p-once');
+    period.setAttribute('dash-id', 'p-once');
     period.setAttribute('start', '0');
     period.setAttribute('duration', '10');
     document.body.appendChild(period);

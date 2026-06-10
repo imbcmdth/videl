@@ -42,7 +42,7 @@ async function buildPresentation(page: any, opts: {
 
     for (let i = 0; i < periodCount; i++) {
       const p = document.createElement('videl-period') as any;
-      p.setAttribute('period-id', `period-${i}`);
+      p.setAttribute('dash-id', `period-${i}`);
       p.setAttribute('start', String(i * 10));
       p.setAttribute('duration', '10');
       pres.appendChild(p);
@@ -64,9 +64,9 @@ test('criterion 1 — first period receives slot=active when presentation is act
     document.body.appendChild(pres);
 
     const p0 = document.createElement('videl-period') as any;
-    p0.setAttribute('period-id', 'p0');
+    p0.setAttribute('dash-id', 'p0');
     const p1 = document.createElement('videl-period') as any;
-    p1.setAttribute('period-id', 'p1');
+    p1.setAttribute('dash-id', 'p1');
     pres.appendChild(p0);
     pres.appendChild(p1);
 
@@ -97,7 +97,7 @@ test('criterion 3 — videl:done from period 0 activates period 1', async ({ pag
 
     const periods = [0, 1].map(i => {
       const p = document.createElement('videl-period') as any;
-      p.setAttribute('period-id', `p${i}`);
+      p.setAttribute('dash-id', `p${i}`);
       pres.appendChild(p);
       return p;
     });
@@ -141,7 +141,7 @@ test('criterion 4 — period videl:done does NOT immediately fire presentation-l
     document.body.appendChild(pres);
 
     const p0 = document.createElement('videl-period') as any;
-    p0.setAttribute('period-id', 'p0');
+    p0.setAttribute('dash-id', 'p0');
     pres.appendChild(p0);
 
     const events: any[] = [];
@@ -184,7 +184,7 @@ test('criterion 4 (no early) — presentation videl:done does not fire while mor
 
     const periods = [0, 1].map(i => {
       const p = document.createElement('videl-period') as any;
-      p.setAttribute('period-id', `p${i}`);
+      p.setAttribute('dash-id', `p${i}`);
       pres.appendChild(p);
       return p;
     });
@@ -221,9 +221,9 @@ test('criterion — videl:done from a grandchild does not trigger period advance
     document.body.appendChild(pres);
 
     const p0 = document.createElement('videl-period') as any;
-    p0.setAttribute('period-id', 'p0');
+    p0.setAttribute('dash-id', 'p0');
     const p1 = document.createElement('videl-period') as any;
-    p1.setAttribute('period-id', 'p1');
+    p1.setAttribute('dash-id', 'p1');
     pres.appendChild(p0);
     pres.appendChild(p1);
 
@@ -263,7 +263,7 @@ test('criterion 5 — videlUpdate() is forwarded to the active period', async ({
     document.body.appendChild(pres);
 
     const p0 = document.createElement('videl-period') as any;
-    p0.setAttribute('period-id', 'p0');
+    p0.setAttribute('dash-id', 'p0');
     p0.setAttribute('start', '0');
     p0.setAttribute('duration', '30');
     pres.appendChild(p0);
@@ -298,7 +298,7 @@ test('criterion 8 — removing slot deactivates the active period synchronously'
     document.body.appendChild(pres);
 
     const p0 = document.createElement('videl-period') as any;
-    p0.setAttribute('period-id', 'p0');
+    p0.setAttribute('dash-id', 'p0');
     pres.appendChild(p0);
 
     pres.setAttribute('videl-state', 'active');
