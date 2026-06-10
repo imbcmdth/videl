@@ -758,6 +758,22 @@ export class VidelPlayer extends HTMLElement {
     try {
       ms.setLiveSeekableRange(Math.max(this.#wallAnchor, start), nowSec);
     } catch { /* ignore — setLiveSeekableRange may throw if duration != Infinity */ }
+
+    // Evict buffered content behind the DVR window trailing edge.
+    //
+    // video.seekable is the UNION of the buffered ranges and the range set by
+    // setLiveSeekableRange. Without explicit removal, old buffered content from
+    // player-time 0 onward keeps seekable.start(0) pinned at the origin, so the
+    // window grows instead of sliding (ADR-0005).
+    //
+    // Only call remove when there is a meaningful amount to evict (≥ 0.5 s) to
+    // avoid queuing no-op operations every tick.
+    const evictTo = Math.max(this.#wallAnchor, start); // wall-clock DVR trailing edge
+    if (evictTo > this.#wallAnchor + 0.5) {
+      for (const msb of this.#sourceBuffers.values()) {
+        msb.remove(this.#wallAnchor, evictTo).catch(() => {});
+      }
+    }
   }
 
   /**

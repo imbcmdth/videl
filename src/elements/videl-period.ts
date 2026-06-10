@@ -299,7 +299,15 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   render() {
     // Keep flex-grow in sync with duration on every render (catches any late
     // attribute changes and works around useDefineForClassFields shadowing).
-    this.#applyFlexGrow();
+    //
+    // Exception: for live (dynamic) presentations, flex-grow is owned by
+    // videl-presentation's #updateLivePeriodWindows() which runs every pump
+    // tick and clamps it to the DVR window intersection. Calling #applyFlexGrow()
+    // here would overwrite that windowed value with the raw (potentially
+    // ever-growing) period duration each time Lit re-renders.
+    if (this.parentElement?.getAttribute('type') !== 'dynamic') {
+      this.#applyFlexGrow();
+    }
 
     const titles: Record<string, string> = {
       audio: 'Audio',
