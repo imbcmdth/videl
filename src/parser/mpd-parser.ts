@@ -99,6 +99,16 @@ function buildPresentation(
   }
   el.setAttribute('type', type);
 
+  const mup = mpd.getAttribute('minimumUpdatePeriod');
+  if (mup) {
+    el.setAttribute('minimum-update-period', String(parseDuration(mup)));
+  }
+
+  const publishTime = mpd.getAttribute('publishTime');
+  if (publishTime) {
+    el.setAttribute('publish-time', String(parseIsoDateTime(publishTime)));
+  }
+
   const mpdBase = resolveBaseUrl(mpd, baseUrl);
   const mpdDur  = dur ? parseDuration(dur) : undefined;
 

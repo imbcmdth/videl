@@ -3,6 +3,7 @@ import presentationCss from '../styles/videl-presentation.css';
 import { SequentialMixin } from '../mixins/sequential-mixin';
 import { PickOneMixin } from '../mixins/pick-one-mixin';
 import { parseMpd } from '../parser/mpd-parser';
+import { applyMpdUpdate } from '../parser/mpd-merger';
 import type { PlayerState } from '../player-state';
 import { VidelPeriod } from './videl-period';
 import {
@@ -81,7 +82,10 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // Which informational menu the control bar has open (drives the active period).
     menuOpen: { type: String,  attribute: 'videl-menu-open', reflect: true },
     // Mirrors document.fullscreenElement so the icon toggles reactively.
-    fullscreen: { type: Boolean, attribute: 'videl-fullscreen', reflect: true }
+    fullscreen: { type: Boolean, attribute: 'videl-fullscreen', reflect: true },
+    // Live-stream update metadata (stamped by the parser from MPD attributes).
+    minimumUpdatePeriod: { type: Number, attribute: 'minimum-update-period' },
+    publishTime:         { type: Number, attribute: 'publish-time' },
   };
 
   src                        = '';
@@ -112,8 +116,18 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   /** True while this presentation is the fullscreen element. */
   fullscreen = false;
 
+  /** Seconds between MPD re-fetches for dynamic streams (null = no polling). */
+  minimumUpdatePeriod: number | null = null;
+  /** Unix epoch seconds of the last MPD publish time (null = unknown). */
+  publishTime:         number | null = null;
+
   #fetchController: AbortController | null = null;
   #populatePromise: Promise<void> | null   = null;
+
+  /** ms wall clock after the last successful MPD fetch. */
+  #lastFetchWallTime = 0;
+  /** Prevents overlapping concurrent MPD re-fetch requests. */
+  #refreshInFlight   = false;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -154,6 +168,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     } else if (value === null) {
       this.#fetchController?.abort();
       this.#fetchController = null;
+      this.#refreshInFlight = false;  // allow re-activation to refresh
       // Presentation deactivated — close any open menu (detaches listener too).
       this.#closeMenu();
     }
@@ -169,6 +184,17 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   videlUpdate(state: PlayerState): void {
     if (this.getAttribute('videl-state') !== 'active') {
       return;
+    }
+
+    // Periodic MPD re-fetch for live streams with minimumUpdatePeriod.
+    if (this.presentationType === 'dynamic' &&
+        this.minimumUpdatePeriod !== null &&
+        !this.#refreshInFlight &&
+        this.hasAttribute('videl-populated')) {
+      const elapsed = (Date.now() - this.#lastFetchWallTime) / 1000;
+      if (elapsed >= this.minimumUpdatePeriod) {
+        void this.#refreshMpd();
+      }
     }
 
     // Stamp UI state. NOTE: with `useDefineForClassFields: true` these class
@@ -300,6 +326,50 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   }
 
   /**
+   * Re-fetch the MPD and merge any changes into the live element tree.
+   * Called by `videlUpdate()` when the minimum update period has elapsed.
+   * Non-fatal: errors are logged but do not interrupt playback.
+   */
+  async #refreshMpd(): Promise<void> {
+    if (this.#refreshInFlight || !this.src) {
+      return;
+    }
+    this.#refreshInFlight = true;
+    try {
+      const response = await fetch(this.src, { signal: this.#fetchController?.signal });
+      if (!response.ok) {
+        return;
+      }
+      const xml = await response.text();
+
+      const self = this as unknown as HTMLElement;
+      const tsbdDefault = Math.max(
+        0,
+        Number(self.parentElement?.getAttribute('time-shift-buffer-depth-default') ?? 0)
+      );
+      const newTree = parseMpd(xml, this.src, { tsbdDefault });
+
+      // publishTime guard: skip if this is not a newer document
+      const newPublishTime = Number(newTree.getAttribute('publish-time') ?? 0);
+      if (newPublishTime > 0 && newPublishTime <= (this.publishTime ?? 0)) {
+        return;  // same or older MPD — no-op
+      }
+
+      applyMpdUpdate(self, newTree);
+      this.#lastFetchWallTime = Date.now();
+
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      // Non-fatal: log but continue playback
+      console.warn('[videl-presentation] MPD refresh failed:', err);
+    } finally {
+      this.#refreshInFlight = false;
+    }
+  }
+
+  /**
    * Fetch the MPD at `src`, parse it, and inject `<videl-period>` children.
    *
    * Non-period children (user metadata: thumbnails, headings, etc.) are
@@ -358,7 +428,13 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
         self.setAttribute('type', type);
       }
 
+      const mup     = subtree.getAttribute('minimum-update-period');
+      const pubTime = subtree.getAttribute('publish-time');
+      if (mup)     { self.setAttribute('minimum-update-period', mup); }
+      if (pubTime) { self.setAttribute('publish-time', pubTime); }
+
       this.setAttribute('videl-populated', '');
+      this.#lastFetchWallTime = Date.now();
 
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {

@@ -1,5 +1,4 @@
 import playerCss from '../styles/videl-player.css';
-import { parseMpd } from '../parser/mpd-parser';
 import { ErgoMediaSource, TextSourceBuffer, OffsetTimeRanges } from 'ergo-mse';
 import type { ISourceBuffer } from 'ergo-mse';
 import type { PlayerState } from '../player-state';
@@ -411,7 +410,7 @@ export class VidelPlayer extends HTMLElement {
 
   // ── Legacy load (src attribute) ───────────────────────────────────────────
 
-  async #beginLoad(src: string): Promise<void> {
+  #beginLoad(src: string): void {
     if (!src || !this.isConnected) {
       return;
     }
@@ -426,42 +425,34 @@ export class VidelPlayer extends HTMLElement {
     this.#teardownPresentation();
     this.#teardownMse();
 
-    try {
-      const resp = await fetch(src, { signal });
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} fetching ${src}`);
-      }
-      const xml = await resp.text();
-      if (signal.aborted) {
-        return;
-      }
+    // Remove any previous generated presentation.
+    for (const old of [...this.querySelectorAll(':scope > videl-presentation')]) {
+      old.removeAttribute('videl-state');
+      this.removeChild(old);
+    }
 
-      const presEl = parseMpd(xml, src, { tsbdDefault: this.#tsbdDefault });
-      if (signal.aborted) {
-        return;
-      }
+    // Create a bare <videl-presentation src="..."> and let its own populate
+    // lifecycle (videlPopulate → #populate) handle the fetch + parse.
+    // #activatePresentation calls videlPopulate() before #setupMse, so this
+    // follows exactly the same path as playlist mode.
+    const presEl = document.createElement('videl-presentation');
+    presEl.setAttribute('src', src);
+    // Mark as auto-generated so consumers can target `videl-presentation[videl-generated]`
+    // in CSS to style (or hide) it differently from declarative playlist cards.
+    presEl.setAttribute('videl-generated', '');
+    this.appendChild(presEl);
 
-      // Replace all presentation children with the newly parsed one.
-      for (const old of [...this.querySelectorAll(':scope > videl-presentation')]) {
-        old.removeAttribute('videl-state');
-        this.removeChild(old);
-      }
-      // Mark as auto-generated so consumers can target `videl-presentation[videl-generated]`
-      // in CSS to style (or hide) it differently from declarative playlist cards.
-      presEl.setAttribute('videl-generated', '');
-      this.appendChild(presEl);
-
-      await this.#setupMse(presEl, signal);
+    this.#activatePresentation(presEl, signal).then(() => {
       if (wasPlaying) {
         this.#video.play().catch(() => {});
       }
-    } catch (err: unknown) {
+    }).catch((err: unknown) => {
       if (err instanceof DOMException && err.name === 'AbortError') {
         return;
       }
       // eslint-disable-next-line no-console
       console.error('[videl-player] load failed:', err);
-    }
+    });
   }
 
   // ── MSE setup ─────────────────────────────────────────────────────────────

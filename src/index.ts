@@ -10,6 +10,7 @@ export { VidelPlayer } from './elements/videl-player';
 export { VidelEventStream } from './elements/videl-event-stream';
 export { VidelEvent } from './elements/videl-event';
 export { parseMpd, ParseError, parseDuration } from './parser/mpd-parser';
+export { applyMpdUpdate } from './parser/mpd-merger';
 export type { TraceCategory, TraceDetail } from './trace';
 
 // ── ergo-mse ─────────────────────────────────────────────────────────────────
