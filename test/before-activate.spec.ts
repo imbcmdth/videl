@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { VidelBeforeActivateEvent } from '../src/events';
 
 const MODULE_PATH = path.join(__dirname, '../dist/index.js');
 
@@ -140,8 +141,8 @@ test('criterion 2b — detail.element is the element itself, not an ancestor', a
 
     const detailElements: string[] = [];
     // Listen on the container — events bubble so we'll catch all of them
-    document.body.addEventListener('videl:before-activate', (e: CustomEvent) => {
-      detailElements.push(e.detail.element.tagName.toLowerCase());
+    document.body.addEventListener('videl:before-activate', (e: Event) => {
+      detailElements.push((e as CustomEvent<{ element: Element }>).detail.element.tagName.toLowerCase());
     });
 
     period.setAttribute('videl-state', 'active');
@@ -180,7 +181,7 @@ test('criterion 3 — waitUntil defers activation until promise resolves', async
     pres.addEventListener('videl:before-activate', (e: CustomEvent) => {
       if (e.detail.element !== pres) return;
       log.push('before-activate');
-      e.waitUntil(blocker);
+      (e as unknown as VidelBeforeActivateEvent).waitUntil(blocker);
     });
 
     // Track when the period gets activated (which happens after before-activate settles)
@@ -229,7 +230,7 @@ test('criterion 4 — rejected waitUntil aborts activation and fires videl:activ
 
     pres.addEventListener('videl:before-activate', (e: CustomEvent) => {
       log.push('before-activate');
-      e.waitUntil(Promise.reject(new Error('auth-failed')));
+      (e as unknown as VidelBeforeActivateEvent).waitUntil(Promise.reject(new Error('auth-failed')));
     });
 
     // Should NOT fire because activation is aborted
@@ -285,8 +286,8 @@ test('criterion 5 — all waitUntil promises settle before activation proceeds',
 
     pres.addEventListener('videl:before-activate', (e: CustomEvent) => {
       if (e.detail.element !== pres) return;
-      e.waitUntil(promiseA);
-      e.waitUntil(promiseB);
+      (e as unknown as VidelBeforeActivateEvent).waitUntil(promiseA);
+      (e as unknown as VidelBeforeActivateEvent).waitUntil(promiseB);
     });
 
     period.addEventListener('videl:before-activate', () => {
@@ -383,8 +384,8 @@ test('criterion 8 — event bubbles: parent listener receives events from descen
     pres.appendChild(period);
 
     const seen: string[] = [];
-    container.addEventListener('videl:before-activate', (e: CustomEvent) => {
-      seen.push(e.detail.element.tagName.toLowerCase());
+    container.addEventListener('videl:before-activate', (e: Event) => {
+      seen.push((e as CustomEvent<{ element: Element }>).detail.element.tagName.toLowerCase());
     });
 
     // Activate presentation — this will cascade into period activation
@@ -419,7 +420,7 @@ test('criterion 9 — waitUntil allows async config to be stamped before child a
 
     // Simulate an async config stamp (e.g. DRM config fetch)
     pres.addEventListener('videl:before-activate', (e: CustomEvent) => {
-      e.waitUntil(
+      (e as unknown as VidelBeforeActivateEvent).waitUntil(
         new Promise<void>(resolve => setTimeout(resolve, 5))
           .then(() => { (e.detail.element as any).dataset.configStamped = 'yes'; })
       );

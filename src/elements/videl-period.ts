@@ -2,7 +2,8 @@ import { LitElement, html, nothing, css, unsafeCSS } from 'lit';
 import periodCss from '../styles/videl-period.css';
 import { PickNMixin } from '../mixins/pick-n-mixin';
 import type { PlayerState } from '../player-state';
-import { VidelBeforeActivateEvent } from '../events';
+import { fireBeforeActivate, dispatchActivateError } from '../events';
+import { childrenByTag } from '../utils';
 import { VidelAdaptationSet } from './videl-adaptation-set';
 import { VidelEventStream } from './videl-event-stream';
 
@@ -91,7 +92,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     }
 
     if (value === 'active') {
-      this.#onBecomeActive().catch(err => this.#onActivateError(err));
+      this.#onBecomeActive().catch(err => dispatchActivateError(this as unknown as Element, err));
     } else if (value === 'next') {
       this.#preloadAll();
     } else if (value === null) {
@@ -113,34 +114,8 @@ export class VidelPeriod extends PickNMixin(LitElement) {
    * adaptation sets.
    */
   async #onBecomeActive(): Promise<void> {
-    await this.#fireBeforeActivate();
+    await fireBeforeActivate(this as unknown as Element);
     this.#activateAll();
-  }
-
-  /**
-   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
-   * to settle.
-   */
-  async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this as unknown as Element);
-    this.dispatchEvent(event);
-    await event.settled;
-  }
-
-  /**
-   * Handle activation failure: revert the `videl-state` attribute and dispatch
-   * a `videl:activate:error` event.
-   */
-  #onActivateError(err: unknown): void {
-    this.removeAttribute('videl-state');
-    this.dispatchEvent(new CustomEvent('videl:activate:error', {
-      bubbles: true,
-      composed: true,
-      detail: {
-        element: this,
-        error: err instanceof Error ? err : new Error(String(err))
-      }
-    }));
   }
 
   // ── Pump method ───────────────────────────────────────────────────────────
@@ -218,7 +193,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childAdaptationSets(): VidelAdaptationSet[] {
-    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-adaptation-set') as VidelAdaptationSet[];
+    return childrenByTag<VidelAdaptationSet>(this, 'videl-adaptation-set');
   }
 
   /** All adaptation-set children that are currently active. */
@@ -228,7 +203,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
 
   /** All `<videl-event-stream>` direct children. */
   get #childEventStreams(): VidelEventStream[] {
-    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-event-stream') as VidelEventStream[];
+    return childrenByTag<VidelEventStream>(this, 'videl-event-stream');
   }
 
   /** Group adaptation-set children by their `content-type` attribute. */

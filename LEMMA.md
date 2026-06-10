@@ -93,6 +93,10 @@ This is the shared memory for all agents working on the `videl-castro` project. 
 - **[2026-06-03] Public method/property naming:** Any public method or property on a videl custom element that uses a generic name shared with browser or framework built-ins **must** be prefixed with `videl`. This prevents silent collisions with LitElement, HTMLElement, or future platform APIs. Examples: the element pump method is `videlUpdate(state: PlayerState)` — not `update()`, which collides with `LitElement.update(changedProperties)`. Attribute-reflected reactive properties (e.g. `duration`, `start`, `slot`) are exempt because they are intentionally mapping to HTML attribute names.
 - **[2026-06-01] ADD:** `planning/ADD-001-dom-mirror-architecture.md`
 
+## Workflow Rules
+
+- **[2026-06-10] Always run lint after finishing work.** `npm run lint` runs ESLint (`lint:fix`) and TypeScript type-checking (`lint:types`) in parallel. No pull request or commit should leave lint failures behind. See `AGENTS.md` for the canonical rule.
+
 ## User Preferences
 
 _(Corrections, feedback, or stated preferences from the human.)_

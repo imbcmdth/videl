@@ -5,6 +5,7 @@ import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from 'ergo-mse';
 import { parseSidx } from '../lib/mp4';
 import { expandTemplate } from '../parser/template-utils';
+import { childrenByTag } from '../utils';
 import { VidelSegment } from './videl-segment';
 import { trace } from '../trace';
 
@@ -435,7 +436,7 @@ export class VidelRepresentation extends PickOneMixin(LitElement) {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childSegments(): VidelSegment[] {
-    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-segment') as VidelSegment[];
+    return childrenByTag<VidelSegment>(this, 'videl-segment');
   }
 
   /**

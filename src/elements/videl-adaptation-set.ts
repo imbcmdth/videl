@@ -4,7 +4,8 @@ import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from 'ergo-mse';
 import { VidelRepresentation } from './videl-representation';
-import { VidelBeforeActivateEvent } from '../events';
+import { fireBeforeActivate, dispatchActivateError } from '../events';
+import { childrenByTag } from '../utils';
 import { trace } from '../trace';
 
 /**
@@ -138,7 +139,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     }
 
     if (value === 'active') {
-      this.#onBecomeActive().catch(err => this.#onActivateError(err));
+      this.#onBecomeActive().catch(err => dispatchActivateError(this as unknown as Element, err));
     } else if (value === null) {
       this.#sourceBuffer = null;
       this.removeAttribute('videl-active-codecs');
@@ -150,7 +151,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
    * sourceBuffer setup and ABR initialization.
    */
   async #onBecomeActive(): Promise<void> {
-    await this.#fireBeforeActivate();
+    await fireBeforeActivate(this as unknown as Element);
 
     if (!this.#sourceBuffer) {
       // The "None" text ADS has no representations and no sourceBuffer until
@@ -192,32 +193,6 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     }
   }
 
-  /**
-   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
-   * to settle.
-   */
-  async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this as unknown as Element);
-    this.dispatchEvent(event);
-    await event.settled;
-  }
-
-  /**
-   * Handle activation failure: revert the `videl-state` attribute and dispatch
-   * a `videl:activate:error` event.
-   */
-  #onActivateError(err: unknown): void {
-    this.removeAttribute('videl-state');
-    this.dispatchEvent(new CustomEvent('videl:activate:error', {
-      bubbles: true,
-      composed: true,
-      detail: {
-        element: this,
-        error: err instanceof Error ? err : new Error(String(err))
-      }
-    }));
-  }
-
   // ── Pump method ───────────────────────────────────────────────────────────
 
   videlUpdate(state: PlayerState): void {
@@ -248,7 +223,7 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   get #childRepresentations(): VidelRepresentation[] {
-    return Array.from(this.children).filter(el => el.tagName.toLowerCase() === 'videl-representation') as VidelRepresentation[];
+    return childrenByTag<VidelRepresentation>(this, 'videl-representation');
   }
 
   get #activeRepresentation(): VidelRepresentation | null {

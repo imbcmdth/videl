@@ -37,3 +37,38 @@ export class VidelBeforeActivateEvent extends CustomEvent<{ element: Element }> 
     return Promise.all(this.#promises).then(() => undefined);
   }
 }
+
+// ── Activation lifecycle helpers ──────────────────────────────────────────────
+// Shared by all videl elements that implement the videl-state="active" pattern.
+// Each element has its own #onBecomeActive() continuation, but the before-activate
+// event dispatch and error reporting are identical everywhere.
+
+/**
+ * Fire the `videl:before-activate` event on `element` and wait for all
+ * `waitUntil` promises to settle before returning.
+ *
+ * Used by every videl element whose `videl-state` transitions to `"active"`.
+ */
+export async function fireBeforeActivate(element: Element): Promise<void> {
+  const event = new VidelBeforeActivateEvent(element);
+  element.dispatchEvent(event);
+  await event.settled;
+}
+
+/**
+ * Revert `videl-state` and dispatch `videl:activate:error` on `element`.
+ *
+ * Called from the `.catch` handler of each element's `#onBecomeActive()` async
+ * path when activation fails (e.g. a `waitUntil` promise rejects).
+ */
+export function dispatchActivateError(element: Element, err: unknown): void {
+  element.removeAttribute('videl-state');
+  element.dispatchEvent(new CustomEvent('videl:activate:error', {
+    bubbles: true,
+    composed: true,
+    detail: {
+      element,
+      error: err instanceof Error ? err : new Error(String(err))
+    }
+  }));
+}

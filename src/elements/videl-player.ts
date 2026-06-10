@@ -3,7 +3,8 @@ import { ErgoMediaSource, TextSourceBuffer, OffsetTimeRanges } from 'ergo-mse';
 import type { ISourceBuffer } from 'ergo-mse';
 import type { PlayerState } from '../player-state';
 import type { DrmConfig, DrmSystemConfig } from '../lib/drm-config';
-import { VidelBeforeActivateEvent } from '../events';
+import { fireBeforeActivate, dispatchActivateError } from '../events';
+import { childrenByTag } from '../utils';
 import { trace } from '../trace';
 import { VidelAdaptationSet } from './videl-adaptation-set';
 import type { ContentProtectionInfo } from './videl-adaptation-set';
@@ -306,7 +307,7 @@ export class VidelPlayer extends HTMLElement {
       this.#tsbdDefault = Math.max(0, Number(value ?? 0));
     } else if (name === 'videl-state') {
       if (value === 'active' && old !== 'active') {
-        this.#onBecomeActive().catch(err => this.#onActivateError(err));
+        this.#onBecomeActive().catch(err => dispatchActivateError(this as unknown as Element, err));
       } else if (value !== 'active' && old === 'active') {
         // Pause: direct call to native video — no before-activate event for deactivation.
         this.#video.pause();
@@ -320,35 +321,9 @@ export class VidelPlayer extends HTMLElement {
    * #video.play().
    */
   async #onBecomeActive(): Promise<void> {
-    await this.#fireBeforeActivate();
+    await fireBeforeActivate(this as unknown as Element);
     // Only call #video.play() here — NOT this.play() — breaking any potential loop.
     this.#video.play().catch(() => {});
-  }
-
-  /**
-   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
-   * to settle.
-   */
-  async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this as unknown as Element);
-    this.dispatchEvent(event);
-    await event.settled;
-  }
-
-  /**
-   * Handle activation failure: revert the `videl-state` attribute and dispatch
-   * a `videl:activate:error` event.
-   */
-  #onActivateError(err: unknown): void {
-    this.removeAttribute('videl-state');
-    this.dispatchEvent(new CustomEvent('videl:activate:error', {
-      bubbles: true,
-      composed: true,
-      detail: {
-        element: this,
-        error: err instanceof Error ? err : new Error(String(err))
-      }
-    }));
   }
 
   // ── HTMLMediaElement proxy ────────────────────────────────────────────────
@@ -452,7 +427,7 @@ export class VidelPlayer extends HTMLElement {
   // ── Playlist helpers ──────────────────────────────────────────────────────
 
   get #childPresentations(): Element[] {
-    return [...this.querySelectorAll(':scope > videl-presentation')];
+    return childrenByTag<Element>(this, 'videl-presentation');
   }
 
   /** Start playing the pre-declared playlist from the first presentation. */

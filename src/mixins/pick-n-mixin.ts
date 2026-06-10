@@ -25,6 +25,7 @@
  */
 
 import type { Constructor } from './pick-one-mixin';
+import { mergeObservedAttributes } from '../utils';
 export type { Constructor };
 
 type CEBase = Constructor<
@@ -40,19 +41,7 @@ export function PickNMixin<TBase extends CEBase>(Base: TBase) {
     #nextByKey:   Map<string, Element> = new Map();
 
     static get observedAttributes(): string[] {
-      // Same prototype-chain walk as PickOneMixin.
-      let proto: Function | null = Base;
-      while (proto) {
-        const desc = Object.getOwnPropertyDescriptor(proto, 'observedAttributes');
-        if (desc?.get) {
-          const parentAttrs: string[] = desc.get.call(this) ?? [];
-          return parentAttrs.includes('videl-state') ?
-            parentAttrs :
-            [...parentAttrs, 'videl-state'];
-        }
-        proto = Object.getPrototypeOf(proto);
-      }
-      return ['videl-state'];
+      return mergeObservedAttributes(Base, this, ['videl-state']);
     }
 
     connectedCallback(): void {

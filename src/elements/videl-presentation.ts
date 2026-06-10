@@ -6,7 +6,8 @@ import { parseMpd } from '../parser/mpd-parser';
 import { applyMpdUpdate } from '../parser/mpd-merger';
 import type { PlayerState } from '../player-state';
 import type { DrmConfig } from '../lib/drm-config';
-import { VidelBeforeActivateEvent } from '../events';
+import { fireBeforeActivate, dispatchActivateError } from '../events';
+import { childrenByTag } from '../utils';
 import { VidelPeriod } from './videl-period';
 import {
   ICON_PLAY, ICON_PAUSE,
@@ -161,7 +162,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
         this.#ensurePopulated();
       }
     } else if (value === 'active') {
-      this.#onBecomeActive().catch(err => this.#onActivateError(err));
+      this.#onBecomeActive().catch(err => dispatchActivateError(this as unknown as Element, err));
     } else if (value === null) {
       this.#fetchController?.abort();
       this.#fetchController = null;
@@ -185,34 +186,8 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       }
     }
     // Presentation tree is now ready; fire before-activate before period activation.
-    await this.#fireBeforeActivate();
+    await fireBeforeActivate(this as unknown as Element);
     this.#activateFirstPeriod();
-  }
-
-  /**
-   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
-   * to settle.
-   */
-  async #fireBeforeActivate(): Promise<void> {
-    const event = new VidelBeforeActivateEvent(this as unknown as Element);
-    this.dispatchEvent(event);
-    await event.settled;
-  }
-
-  /**
-   * Handle activation failure: revert the `videl-state` attribute and dispatch
-   * a `videl:activate:error` event.
-   */
-  #onActivateError(err: unknown): void {
-    this.removeAttribute('videl-state');
-    this.dispatchEvent(new CustomEvent('videl:activate:error', {
-      bubbles: true,
-      composed: true,
-      detail: {
-        element: this,
-        error: err instanceof Error ? err : new Error(String(err))
-      }
-    }));
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -295,8 +270,8 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  get #childPeriods(): Element[] {
-    return Array.from((this as unknown as HTMLElement).children).filter((el: unknown) => (el as Element).tagName.toLowerCase() === 'videl-period') as Element[];
+  get #childPeriods(): VidelPeriod[] {
+    return childrenByTag<VidelPeriod>(this as unknown as HTMLElement, 'videl-period');
   }
 
   /**
