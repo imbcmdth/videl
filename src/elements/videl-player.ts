@@ -2,6 +2,7 @@ import playerCss from '../styles/videl-player.css';
 import { ErgoMediaSource, TextSourceBuffer, OffsetTimeRanges } from 'ergo-mse';
 import type { ISourceBuffer } from 'ergo-mse';
 import type { PlayerState } from '../player-state';
+import { VidelBeforeActivateEvent } from '../events';
 import { trace } from '../trace';
 import { VidelAdaptationSet } from './videl-adaptation-set';
 import { VidelPresentation } from './videl-presentation';
@@ -45,7 +46,7 @@ import { VidelEventStream } from './videl-event-stream';
  *  `playbackRate` (get/set) — all delegate to the internal `<video>`.
  */
 export class VidelPlayer extends HTMLElement {
-  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'time-shift-buffer-depth-default'];
+  static observedAttributes = ['src', 'tick-ms', 'buffer-ahead', 'time-shift-buffer-depth-default', 'videl-state'];
 
   // ── Internal DOM ──────────────────────────────────────────────────────────
 
@@ -286,7 +287,51 @@ export class VidelPlayer extends HTMLElement {
       this.#bufferAhead = Math.max(1, Number(value ?? 30));
     } else if (name === 'time-shift-buffer-depth-default') {
       this.#tsbdDefault = Math.max(0, Number(value ?? 0));
+    } else if (name === 'videl-state') {
+      if (value === 'active' && old !== 'active') {
+        this.#onBecomeActive().catch(err => this.#onActivateError(err));
+      } else if (value !== 'active' && old === 'active') {
+        // Pause: direct call to native video — no before-activate event for deactivation.
+        this.#video.pause();
+        this.removeAttribute('videl-user-inactive');
+      }
     }
+  }
+
+  /**
+   * Async activation path: fires `videl:before-activate` before calling
+   * #video.play().
+   */
+  private async #onBecomeActive(): Promise<void> {
+    await this.#fireBeforeActivate();
+    // Only call #video.play() here — NOT this.play() — breaking any potential loop.
+    this.#video.play().catch(() => {});
+  }
+
+  /**
+   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
+   * to settle.
+   */
+  private async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this as unknown as Element);
+    this.dispatchEvent(event);
+    await event.settled;
+  }
+
+  /**
+   * Handle activation failure: revert the `videl-state` attribute and dispatch
+   * a `videl:activate:error` event.
+   */
+  private #onActivateError(err: unknown): void {
+    this.removeAttribute('videl-state');
+    this.dispatchEvent(new CustomEvent('videl:activate:error', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        element: this,
+        error: err instanceof Error ? err : new Error(String(err))
+      }
+    }));
   }
 
   // ── HTMLMediaElement proxy ────────────────────────────────────────────────
@@ -298,11 +343,32 @@ export class VidelPlayer extends HTMLElement {
     this.setAttribute('src', v);
   }
 
-  play()  {
-    return this.#video.play();
+  play(): Promise<void> {
+    // Setting the attribute triggers attributeChangedCallback → #onBecomeActive()
+    // → #fireBeforeActivate() → #video.play(). We cannot return that deferred
+    // promise directly, so we resolve on 'playing' / reject on 'error'.
+    if (this.getAttribute('videl-state') !== 'active') {
+      this.setAttribute('videl-state', 'active');
+    } else {
+      // Already active but paused (e.g. after autoplay block) — try directly.
+      this.#video.play().catch(() => {});
+    }
+    return new Promise<void>((resolve, reject) => {
+      const onPlaying = () => { cleanup(); resolve(); };
+      const onError   = () => { cleanup(); reject(this.#video.error ?? new Error('play failed')); };
+      const cleanup   = () => {
+        this.#video.removeEventListener('playing', onPlaying);
+        this.#video.removeEventListener('error',   onError);
+      };
+      this.#video.addEventListener('playing', onPlaying, { once: true });
+      this.#video.addEventListener('error',   onError,   { once: true });
+    });
   }
-  pause() {
-    this.#video.pause();
+
+  pause(): void {
+    // Remove the attribute → attributeChangedCallback sees old='active', value≠'active'
+    // → calls this.#video.pause() directly.
+    this.removeAttribute('videl-state');
   }
 
   get currentTime():       number  {
@@ -1173,9 +1239,9 @@ export class VidelPlayer extends HTMLElement {
 
   #onUiPlayPause = (): void => {
     if (this.#video.paused) {
-      this.#video.play().catch(() => {});
+      this.play().catch(() => {});   // sets attribute, fires before-activate
     } else {
-      this.#video.pause();
+      this.pause();                  // removes attribute, pauses video
     }
   };
 

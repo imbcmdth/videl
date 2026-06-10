@@ -5,6 +5,7 @@ import { PickOneMixin } from '../mixins/pick-one-mixin';
 import { parseMpd } from '../parser/mpd-parser';
 import { applyMpdUpdate } from '../parser/mpd-merger';
 import type { PlayerState } from '../player-state';
+import { VidelBeforeActivateEvent } from '../events';
 import { VidelPeriod } from './videl-period';
 import {
   ICON_PLAY, ICON_PAUSE,
@@ -155,16 +156,7 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
         this.#ensurePopulated();
       }
     } else if (value === 'active') {
-      if (this.src && !this.hasAttribute('videl-populated')) {
-        // No prior prefetch — populate inline, then activate.
-        this.#ensurePopulated().then(() => {
-          if (this.getAttribute('videl-state') === 'active') {
-            this.#activateFirstPeriod();
-          }
-        });
-      } else {
-        this.#activateFirstPeriod();
-      }
+      this.#onBecomeActive().catch(err => this.#onActivateError(err));
     } else if (value === null) {
       this.#fetchController?.abort();
       this.#fetchController = null;
@@ -172,6 +164,50 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
       // Presentation deactivated — close any open menu (detaches listener too).
       this.#closeMenu();
     }
+  }
+
+  /**
+   * Async activation path: ensures population is complete, then fires
+   * `videl:before-activate` before activating the first period.
+   */
+  private async #onBecomeActive(): Promise<void> {
+    if (this.src && !this.hasAttribute('videl-populated')) {
+      // No prior prefetch — populate inline first.
+      await this.#ensurePopulated();
+      // Check if activation was aborted during populate
+      if (this.getAttribute('videl-state') !== 'active') {
+        return;
+      }
+    }
+    // Presentation tree is now ready; fire before-activate before period activation.
+    await this.#fireBeforeActivate();
+    this.#activateFirstPeriod();
+  }
+
+  /**
+   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
+   * to settle.
+   */
+  private async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this);
+    this.dispatchEvent(event);
+    await event.settled;
+  }
+
+  /**
+   * Handle activation failure: revert the `videl-state` attribute and dispatch
+   * a `videl:activate:error` event.
+   */
+  private #onActivateError(err: unknown): void {
+    this.removeAttribute('videl-state');
+    this.dispatchEvent(new CustomEvent('videl:activate:error', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        element: this,
+        error: err instanceof Error ? err : new Error(String(err))
+      }
+    }));
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────

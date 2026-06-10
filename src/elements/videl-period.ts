@@ -2,6 +2,7 @@ import { LitElement, html, nothing, css, unsafeCSS } from 'lit';
 import periodCss from '../styles/videl-period.css';
 import { PickNMixin } from '../mixins/pick-n-mixin';
 import type { PlayerState } from '../player-state';
+import { VidelBeforeActivateEvent } from '../events';
 import { VidelAdaptationSet } from './videl-adaptation-set';
 import { VidelEventStream } from './videl-event-stream';
 
@@ -90,7 +91,7 @@ export class VidelPeriod extends PickNMixin(LitElement) {
     }
 
     if (value === 'active') {
-      this.#activateAll();
+      this.#onBecomeActive().catch(err => this.#onActivateError(err));
     } else if (value === 'next') {
       this.#preloadAll();
     } else if (value === null) {
@@ -105,6 +106,41 @@ export class VidelPeriod extends PickNMixin(LitElement) {
         es.removeAttribute('videl-state');
       }
     }
+  }
+
+  /**
+   * Async activation path: fires `videl:before-activate` before activating all
+   * adaptation sets.
+   */
+  private async #onBecomeActive(): Promise<void> {
+    await this.#fireBeforeActivate();
+    this.#activateAll();
+  }
+
+  /**
+   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
+   * to settle.
+   */
+  private async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this);
+    this.dispatchEvent(event);
+    await event.settled;
+  }
+
+  /**
+   * Handle activation failure: revert the `videl-state` attribute and dispatch
+   * a `videl:activate:error` event.
+   */
+  private #onActivateError(err: unknown): void {
+    this.removeAttribute('videl-state');
+    this.dispatchEvent(new CustomEvent('videl:activate:error', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        element: this,
+        error: err instanceof Error ? err : new Error(String(err))
+      }
+    }));
   }
 
   // ── Pump method ───────────────────────────────────────────────────────────

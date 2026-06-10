@@ -4,6 +4,7 @@ import { PickOneMixin } from '../mixins/pick-one-mixin';
 import type { PlayerState } from '../player-state';
 import type { ISourceBuffer } from 'ergo-mse';
 import { VidelRepresentation } from './videl-representation';
+import { VidelBeforeActivateEvent } from '../events';
 import { trace } from '../trace';
 
 /**
@@ -109,48 +110,84 @@ export class VidelAdaptationSet extends PickOneMixin(LitElement) {
     }
 
     if (value === 'active') {
-      if (!this.#sourceBuffer) {
-        // The "None" text ADS has no representations and no sourceBuffer until
-        // videl-player assigns it during #setupMse. If it activates before that
-        // (shouldn't happen in normal flow), silently skip — no error needed.
-        if (this.contentType !== 'text' || !this.videlTextNone) {
-          this.dispatchEvent(new CustomEvent('videl:mse:error', {
-            bubbles: true,
-            composed: true,
-            detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' }
-          }));
-        }
-        return;
-      }
-      // For text tracks: update the codec classification on the TextSourceBuffer
-      // so the demuxer routes samples correctly for this ADS's format, then
-      // show or hide the TextTrack.
-      if (this.contentType === 'text') {
-        if (this.videlTextNone) {
-          this.#sourceBuffer.hide?.();
-        } else {
-          // Call changeType so the TextSourceBuffer resets its demuxer and
-          // updates its codec class before the new representation appends its
-          // init segment. This is the correct place because the ADS (not the
-          // representation) owns the codec string from the MPD manifest —
-          // and an ADS switch (e.g. English→French) may change the codec.
-          const codecs = this.codecs || this.#childRepresentations[0]?.codecs || '';
-          const mime   = this.mimeType || this.#childRepresentations[0]?.mimeType || '';
-          const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
-          if (mimeAndCodecs) {
-            this.#sourceBuffer.changeType(mimeAndCodecs);
-          }
-          this.#sourceBuffer.show?.();
-        }
-      }
-      // Distribute SourceBuffer to every child representation before activation.
-      for (const rep of this.#childRepresentations) {
-        rep.sourceBuffer = this.#sourceBuffer;
-      }
+      this.#onBecomeActive().catch(err => this.#onActivateError(err));
     } else if (value === null) {
       this.#sourceBuffer = null;
       this.removeAttribute('videl-active-codecs');
     }
+  }
+
+  /**
+   * Async activation path: fires `videl:before-activate` before proceeding with
+   * sourceBuffer setup and ABR initialization.
+   */
+  private async #onBecomeActive(): Promise<void> {
+    await this.#fireBeforeActivate();
+
+    if (!this.#sourceBuffer) {
+      // The "None" text ADS has no representations and no sourceBuffer until
+      // videl-player assigns it during #setupMse. If it activates before that
+      // (shouldn't happen in normal flow), silently skip — no error needed.
+      if (this.contentType !== 'text' || !this.videlTextNone) {
+        this.dispatchEvent(new CustomEvent('videl:mse:error', {
+          bubbles: true,
+          composed: true,
+          detail: { contentType: this.contentType, reason: 'missing-sourcebuffer' }
+        }));
+      }
+      return;
+    }
+    // For text tracks: update the codec classification on the TextSourceBuffer
+    // so the demuxer routes samples correctly for this ADS's format, then
+    // show or hide the TextTrack.
+    if (this.contentType === 'text') {
+      if (this.videlTextNone) {
+        this.#sourceBuffer.hide?.();
+      } else {
+        // Call changeType so the TextSourceBuffer resets its demuxer and
+        // updates its codec class before the new representation appends its
+        // init segment. This is the correct place because the ADS (not the
+        // representation) owns the codec string from the MPD manifest —
+        // and an ADS switch (e.g. English→French) may change the codec.
+        const codecs = this.codecs || this.#childRepresentations[0]?.codecs || '';
+        const mime   = this.mimeType || this.#childRepresentations[0]?.mimeType || '';
+        const mimeAndCodecs = codecs ? `${mime}; codecs="${codecs}"` : mime;
+        if (mimeAndCodecs) {
+          this.#sourceBuffer.changeType(mimeAndCodecs);
+        }
+        this.#sourceBuffer.show?.();
+      }
+    }
+    // Distribute SourceBuffer to every child representation before activation.
+    for (const rep of this.#childRepresentations) {
+      rep.sourceBuffer = this.#sourceBuffer;
+    }
+  }
+
+  /**
+   * Fire the `videl:before-activate` event and wait for all `waitUntil` promises
+   * to settle.
+   */
+  private async #fireBeforeActivate(): Promise<void> {
+    const event = new VidelBeforeActivateEvent(this);
+    this.dispatchEvent(event);
+    await event.settled;
+  }
+
+  /**
+   * Handle activation failure: revert the `videl-state` attribute and dispatch
+   * a `videl:activate:error` event.
+   */
+  private #onActivateError(err: unknown): void {
+    this.removeAttribute('videl-state');
+    this.dispatchEvent(new CustomEvent('videl:activate:error', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        element: this,
+        error: err instanceof Error ? err : new Error(String(err))
+      }
+    }));
   }
 
   // ── Pump method ───────────────────────────────────────────────────────────
