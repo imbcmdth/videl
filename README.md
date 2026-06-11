@@ -192,19 +192,27 @@ Place multiple `<videl-presentation>` children inside `<videl-player>`. Each pre
 </style>
 
 <videl-player>
-  <videl-presentation src="https://example.com/ep1.mpd" duration="2700">
-    <img src="ep1-thumb.jpg" alt="Episode 1" />
-    <h3>Episode 1: Pilot</h3>
+  <videl-presentation 
+    src="https://example.com/ep1.mpd" 
+    duration="2700"
+    title="Episode 1: Pilot"
+    description="The beginning of the journey"
+    thumbnail="https://example.com/ep1-thumb.jpg"
+    poster="https://example.com/ep1-poster.jpg">
   </videl-presentation>
 
-  <videl-presentation src="https://example.com/ep2.mpd" duration="2580">
-    <img src="ep2-thumb.jpg" alt="Episode 2" />
-    <h3>Episode 2: The Return</h3>
+  <videl-presentation 
+    src="https://example.com/ep2.mpd" 
+    duration="2580"
+    title="Episode 2: The Return"
+    description="They're back!"
+    thumbnail="https://example.com/ep2-thumb.jpg"
+    poster="https://example.com/ep2-poster.jpg">
   </videl-presentation>
 </videl-player>
 ```
 
-Each `<videl-presentation>` element IS the playlist card. Put any content directly inside it — no wrapper element or `slot` attribute required. The element fetches and parses its own MPD when `videl-state` becomes `next` (prefetch) or `active` (inline activation). Technical children (`<videl-period>` etc.) injected by the parser are hidden by CSS but remain in the DOM for DevTools inspection.
+Each `<videl-presentation>` element IS the playlist card. Metadata is configured via the `title`, `description`, `thumbnail`, and `poster` attributes — no manual DOM construction needed. Optionally, you can add custom light-DOM children (images, headings, etc.) alongside the attribute-based metadata for fine-grained styling control. The element fetches and parses its own MPD when `videl-state` becomes `next` (prefetch) or `active` (inline activation). Technical children (`<videl-period>` etc.) injected by the parser are hidden by CSS but remain in the DOM for DevTools inspection.
 
 ---
 
@@ -288,6 +296,10 @@ Every element receives a `PlayerState` object on each pump tick. Key fields:
 |-----------|--------|-------------|
 | `src` | user config | MPD URL. Fetched automatically when `videl-state` becomes `next` (prefetch) or `active` (inline). |
 | `duration` | user config / manifest | Display duration in seconds. Consumer may declare it before the manifest is fetched for playlist UI. Overwritten by `media-presentation-duration` once the MPD is parsed. |
+| `title` | user config | Display title for the presentation card. Rendered in the card-frame when `videl-state` is not `"active"`. Reflected as both attribute and property. |
+| `description` | user config | Display description/subtitle for the presentation card. Rendered below the title in the card-frame. Reflected as both attribute and property. |
+| `thumbnail` | user config | URL of a thumbnail image (16:9 recommended). Applied as the card background with `background-size: cover`. Also copied to the now-playing mirror in playlist mode. Reflected as both attribute and property. |
+| `poster` | user config | URL of a higher-resolution poster image. Applied to the `<video>` element's `poster` attribute when the presentation activates, shown before playback begins. Reflected as both attribute and property. |
 | `media-presentation-duration` | manifest | Authoritative total duration from `MPD@mediaPresentationDuration`. Used for `endOfStream` gating and the seekbar range. |
 | `min-buffer-time` | manifest | Minimum buffer time from `MPD@minBufferTime`. Informational; available for consumer tooling. |
 | `type` | manifest | `"static"` (VOD) or `"dynamic"` (live). Controls seekbar behaviour and `MediaSource.duration`. |
