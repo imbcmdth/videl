@@ -214,6 +214,16 @@ export class VidelPlayer extends HTMLElement {
     const mirror = this.#ensureMirror();
     mirror.replaceChildren();
 
+    // Apply thumbnail as background image if present
+    const thumbnail = active!.getAttribute('thumbnail');
+    if (thumbnail) {
+      mirror.style.backgroundImage = `url('${thumbnail}')`;
+      mirror.style.backgroundSize = 'cover';
+      mirror.style.backgroundPosition = 'center';
+    } else {
+      mirror.style.backgroundImage = '';
+    }
+
     // "Now playing" badge (inline-styled so it needs no external CSS).
     const badge = document.createElement('div');
     badge.textContent = '\u25B6 Now Playing';
@@ -250,6 +260,8 @@ export class VidelPlayer extends HTMLElement {
     this.addEventListener('videl:ui:seek',        this.#onUiSeek       as EventListener);
     this.addEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
     this.addEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
+    this.addEventListener('videl:poster-changed',   this.#onPosterChanged as EventListener);
+    this.addEventListener('videl:thumbnail-changed', this.#onThumbnailChanged as EventListener);
     this.addEventListener('click',                this.#onPlaylistClick);
     this.#video.addEventListener('seeking', this.#onVideoSeeking);
     this.#video.addEventListener('ended',   this.#onVideoEnded);
@@ -283,6 +295,8 @@ export class VidelPlayer extends HTMLElement {
     this.removeEventListener('videl:ui:seek',        this.#onUiSeek       as EventListener);
     this.removeEventListener('videl:ui:volume',      this.#onUiVolume     as EventListener);
     this.removeEventListener('videl:ui:mute-toggle', this.#onUiMuteToggle as EventListener);
+    this.removeEventListener('videl:poster-changed',   this.#onPosterChanged as EventListener);
+    this.removeEventListener('videl:thumbnail-changed', this.#onThumbnailChanged as EventListener);
     this.removeEventListener('click',                this.#onPlaylistClick);
     this.#video.removeEventListener('seeking', this.#onVideoSeeking);
     this.#video.removeEventListener('ended',   this.#onVideoEnded);
@@ -657,6 +671,12 @@ export class VidelPlayer extends HTMLElement {
 
     if (signal.aborted) {
       return;
+    }
+
+    // Set the poster image on the video element if the presentation has one
+    const posterUrl = presEl.getAttribute('poster');
+    if (posterUrl) {
+      this.#video.poster = posterUrl;
     }
 
     presEl.setAttribute('videl-state', 'active');
@@ -1625,6 +1645,20 @@ export class VidelPlayer extends HTMLElement {
 
   #onUiMuteToggle = (): void => {
     this.#video.muted = !this.#video.muted;
+  };
+
+  #onPosterChanged = (event: Event): void => {
+    const { poster } = (event as CustomEvent).detail ?? {};
+    if (typeof poster === 'string') {
+      this.#video.poster = poster;
+    } else if (poster === undefined || poster === null) {
+      this.#video.poster = '';
+    }
+  };
+
+  #onThumbnailChanged = (): void => {
+    // Update the now-playing mirror with the new thumbnail
+    this.#updateMirror();
   };
 
   // ── MutationObserver ──────────────────────────────────────────────────────

@@ -75,6 +75,11 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     minBufferTime: { type: Number,  attribute: 'min-buffer-time' },
     presentationType: { type: String,  attribute: 'type' },
     slot: { type: String,  reflect: true },
+    // Presentation metadata (auto-populated in card-frame).
+    title: { type: String, reflect: true },
+    description: { type: String, reflect: true },
+    thumbnail: { type: String, reflect: true },
+    poster: { type: String, reflect: true },
     // Pump-driven playback state (reflected to videl-* attributes for external observers).
     currentTime: { type: Number,  attribute: 'videl-current-time',   reflect: true },
     paused: { type: Boolean, attribute: 'videl-paused',         reflect: true },
@@ -99,6 +104,12 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
   minBufferTime:             number | null = null;
   presentationType:          'static' | 'dynamic' = 'static';
   slot: string | undefined   = undefined;
+
+  // Presentation metadata attributes.
+  title: string | undefined       = undefined;
+  description: string | undefined = undefined;
+  thumbnail: string | undefined   = undefined;
+  poster: string | undefined      = undefined;
 
   // Pump-driven UI state (stamped by videlUpdate on every tick).
   /** Raw video.currentTime (player-time). @deprecated — UI scrubber only. */
@@ -151,6 +162,35 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     super.attributeChangedCallback(name, old, value);
+
+    // Handle metadata attribute changes: sync back to reactive properties
+    // and trigger updates to the card-frame and video element.
+    if (name === 'title' || name === 'description' || name === 'thumbnail' || name === 'poster') {
+      // Update the reactive property to match the attribute.
+      const propName = name as 'title' | 'description' | 'thumbnail' | 'poster';
+      (this as Record<string, unknown>)[propName] = value ?? undefined;
+      (this as unknown as LitElement).requestUpdate();
+
+      // If this is the poster attribute and the presentation is active,
+      // notify the player to update the video element's poster.
+      if (name === 'poster' && this.getAttribute('videl-state') === 'active') {
+        this.dispatchEvent(new CustomEvent('videl:poster-changed', {
+          bubbles: true, composed: true,
+          detail: { poster: value ?? undefined }
+        }));
+      }
+
+      // If this is the thumbnail attribute and the presentation is active,
+      // notify the player to update the now-playing mirror.
+      if (name === 'thumbnail' && this.getAttribute('videl-state') === 'active') {
+        this.dispatchEvent(new CustomEvent('videl:thumbnail-changed', {
+          bubbles: true, composed: true,
+          detail: { thumbnail: value ?? undefined }
+        }));
+      }
+
+      return;
+    }
 
     if (name !== 'videl-state') {
       return;
@@ -637,12 +677,26 @@ export class VidelPresentation extends SequentialMixin(PickOneMixin(LitElement) 
     // For display: VOD shows total duration; live shows the seekable span (DVR depth).
     const displayDur = isLive ? seekSpan : seekEnd;
 
+    // Compute thumbnail background (prefer thumbnail over poster).
+    const thumbUrl = this.thumbnail ?? this.poster;
+    const thumbStyle = thumbUrl ? `background-image: url('${thumbUrl}');` : '';
+
     return html`
       <!-- User light-DOM content (title/subtitle, poster, etc.), framed as a
            playlist card while inactive. Consumers use plain semantic tags
            (e.g. <strong> for the title, <small> for a subtitle) — no CSS
-           classes required; the frame positions and colours them. -->
-      <div class="card-frame"><slot></slot></div>
+           classes required; the frame positions and colours them.
+           Presentation metadata (title, description, poster, thumbnail) are
+           auto-populated into a metadata container. -->
+      <div class="card-frame" style=${thumbStyle}>
+        ${this.title || this.description ? html`
+          <div class="metadata">
+            ${this.title ? html`<div class="metadata-title">${this.title}</div>` : nothing}
+            ${this.description ? html`<div class="metadata-description">${this.description}</div>` : nothing}
+          </div>
+        ` : nothing}
+        <slot></slot>
+      </div>
 
       <!-- Click zone: covers the video area above the controls bar -->
       <div class="click-zone" @click=${this.#onClickZone}></div>

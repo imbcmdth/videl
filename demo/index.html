@@ -257,27 +257,33 @@
     <videl-player id="player">
 
       <videl-presentation
-        src="https://media.axprod.net/TestVectors/Dash/not_protected_dash_1080p_h264/manifest.mpd">
-        <strong>Axinom - Tears of Steel</strong>
-        <small>Single-period, 1080p, H.264, 5 video, 3 audio, 3 text tracks, DASH, no encryption</small>
+        src="https://media.axprod.net/TestVectors/Dash/not_protected_dash_1080p_h264/manifest.mpd"
+        title="Tears of Steel - Axinom"
+        description="Single-period, 1080p, H.264, 5 video, 3 audio, 3 text tracks, DASH, no encryption"
+        thumbnail="https://vdn.libreflix.org/covers/media/480edbc0-9d4f-11e7-9e41-2765045230e6thumb.jpg"
+        poster="https://www.davidrevoy.com/data/images/blog/2012/09/tears-of-steel/vignette.jpg">
       </videl-presentation>
 
       <videl-presentation
-        src="https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd">
-        <strong>Nomor — Multi-period</strong>
-        <small>2 periods · SegmentTemplate $number</small>
+        src="https://dash.akamaized.net/dash264/TestCases/5a/nomor/1.mpd"
+        title="Nomor — Multi-period"
+        description="2 periods · SegmentTemplate $number"
+        poster="https://upload.wikimedia.org/wikipedia/commons/7/70/Big.Buck.Bunny.-.Opening.Screen.png">
       </videl-presentation>
 
       <videl-presentation
-        src="https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd">
-        <strong>Qualcomm — SegmentTimeline</strong>
-        <small>$time template · ondemand profile · multi-res</small>
+        src="https://dash.akamaized.net/dash264/TestCases/2c/qualcomm/1/MultiResMPEG2.mpd"
+        title="Qualcomm — SegmentTimeline"
+        description="$time template · ondemand profile · multi-res"
+        thumbnail="https://studio.blender.org/files/public/thumbnail/72/9e/729ec3647df164d468c53e4798e13f4fabf75ce3_o_xs.webp"
+        poster="https://orange.blender.org/wp-content/themes/orange/images/media/gallery/s3_both.jpg">
       </videl-presentation>
 
       <videl-presentation
-        src="https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd">
-        <strong>Big Buck Bunny</strong>
-        <small>SegmentTemplate/Number · up to 4K@15 Mbps</small>
+        src="https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
+        title="Big Buck Bunny"
+        description="SegmentTemplate/Number · up to 4K@15 Mbps"
+        poster="https://upload.wikimedia.org/wikipedia/commons/7/70/Big.Buck.Bunny.-.Opening.Screen.png">
       </videl-presentation>
 
     </videl-player>
@@ -307,5 +313,50 @@
 </footer>
 
 <script type="module" src="dist/bundle.js"></script>
+<script>
+    function log(message, type = 'info') {
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+    const player = document.getElementById('player');
+  
+    player.addEventListener('videl:before-activate', (event) => {
+    const { element } = event.detail;
+
+    // Only handle presentations
+    if (element.tagName !== 'VIDEL-PRESENTATION' || element.src !== 'https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd') {
+      return;
+    }
+    element.drmConfig = {
+      'com.widevine.alpha': {
+        serverUrl: 'https://cwip-shaka-proxy.appspot.com/no_auth'
+      }
+    };
+  });
+
+    player.addEventListener('videl:drm:ready', (event) => {
+      const { keySystem } = event.detail;
+      log(`✓ DRM ready: ${keySystem}`, 'drm');
+    });
+
+    player.addEventListener('videl:drm:session-created', (event) => {
+      const { sessionId } = event.detail;
+      log(`EME session created: ${sessionId.slice(0, 16)}...`, 'drm');
+    });
+
+    player.addEventListener('videl:drm:error', (event) => {
+      const { error } = event.detail;
+      log(`✗ DRM error: ${error.message}`, 'error');
+      console.log(event.target); // Logs the element that triggered the error
+    });
+
+    player.addEventListener('videl:activate:error', (event) => {
+      const { element, error } = event.detail;
+      const name = element.tagName === 'VIDEL-PRESENTATION' 
+        ? element.querySelector('h3')?.textContent 
+        : element.tagName;
+      log(`✗ Activation failed on ${name}: ${error.message}`, 'error');
+    });
+</script>
+</script>
 </body>
 </html>
