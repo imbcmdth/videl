@@ -1,6 +1,6 @@
 {
   "name": "videl",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A bad idea for a video player built with web components",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
